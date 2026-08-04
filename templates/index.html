@@ -1783,7 +1783,7 @@
             if (!videoStream) return null;
 
             const canvas = document.getElementById('hidden-canvas');
-            const context = canvas.getContext('2d');
+            const context = canvas.getContext('2d', { willReadFrequently: true });
             canvas.width = webcam.videoWidth || 1280;
             canvas.height = webcam.videoHeight || 720;
             context.drawImage(webcam, 0, 0, canvas.width, canvas.height);
@@ -1878,7 +1878,7 @@
         function initRadarCanvas() {
             radarCanvas = document.getElementById('spatial-radar-canvas');
             if (radarCanvas) {
-                radarCtx = radarCanvas.getContext('2d');
+                radarCtx = radarCanvas.getContext('2d', { willReadFrequently: true });
                 requestAnimationFrame(drawRadarSweep);
             }
         }
@@ -2033,7 +2033,7 @@
         function processAIResult(payload) {
             try {
                 badgeScan.className = 'badge success-badge';
-                badgeScan.querySelector('span').textContent = "Synced";
+                badgeScan.querySelector('span').textContent = "Scanning Active";
                 if (blipsHolder) {
                     blipsHolder.innerHTML = '';
                 }
@@ -2072,13 +2072,16 @@
                 }
 
                 // Real-time scan voice announcers
-                narratorOutput.textContent = payload.description;
-                currentTextToRead = payload.description;
-                speakText(payload.description, 0); // Normal scan priority
+                if (payload.description) {
+                    narratorOutput.textContent = payload.description;
+                    currentTextToRead = payload.description;
+                    speakText(payload.description, 0); // Normal scan priority
+                }
 
-                // Spatial Obstacles mapping
-                if (payload.obstacles && payload.obstacles.length > 0) {
-                    payload.obstacles.forEach((obstacle, i) => {
+                // Spatial Obstacles & Object mapping
+                const objectList = payload.obstacles || payload.detected_objects || [];
+                if (objectList && objectList.length > 0) {
+                    objectList.forEach((obstacle, i) => {
                         let panVal = 0.0;
 
                         if (obstacle.position === 'left' || obstacle.position === 'aside_left') {
@@ -2087,10 +2090,28 @@
                             panVal = 1.0;
                         }
 
-                        const coords = getRadarCoords(obstacle.position, obstacle.distance_m, 130, 130);
+                        let coords;
+                        if (obstacle.bbox) {
+                            const bx = obstacle.bbox.x !== undefined ? obstacle.bbox.x : (obstacle.bbox[0] || 0.5);
+                            const by = obstacle.bbox.y !== undefined ? obstacle.bbox.y : (obstacle.bbox[1] || 0.5);
+                            const bw = obstacle.bbox.width !== undefined ? obstacle.bbox.width : (obstacle.bbox[2] || 0.2);
+                            const bh = obstacle.bbox.height !== undefined ? obstacle.bbox.height : (obstacle.bbox[3] || 0.2);
+                            
+                            const radius = 130 / 2;
+                            const angle = -Math.PI + (bx * Math.PI);
+                            const distFactor = Math.max(0.1, Math.min(1.0, (1.0 - by) * (1.0 - (bw * bh))));
+                            const r = distFactor * (radius * 0.95);
+                            
+                            coords = {
+                                x: (130 / 2) + r * Math.cos(angle),
+                                y: (130 / 2) + r * Math.sin(angle)
+                            };
+                        } else {
+                            coords = getRadarCoords(obstacle.position, obstacle.distance_m, 130, 130);
+                        }
 
                         let hType = "normal";
-                        const labelLower = (obstacle.label || "").toLowerCase();
+                        const labelLower = (obstacle.label || obstacle.name || "").toLowerCase();
                         const isPerson = labelLower.includes("person") || labelLower.includes("man") || labelLower.includes("woman") || labelLower.includes("people") || labelLower.includes("child") || labelLower.includes("pedestrian");
                         
                         if (isPerson && (obstacle.position === 'aside_left' || obstacle.position === 'aside_right' || obstacle.position === 'aside')) {
@@ -2104,14 +2125,15 @@
                             y: coords.y,
                             type: hType,
                             size: obstacle.size || "normal",
-                            label: obstacle.label,
+                            label: obstacle.label || obstacle.name || "obstacle",
                             addedTime: Date.now()
                         });
 
-                        // Directional voice alert alerts
+                        // Directional voice alert
                         let voiceAlert = "";
+                        const itemLabel = obstacle.label || obstacle.name || "obstacle";
                         if (isPerson && (obstacle.position === 'aside_left' || obstacle.position === 'aside_right' || obstacle.position === 'left' || obstacle.position === 'right')) {
-                            const side = (obstacle.position.includes('left') || obstacle.position === 'left') ? 'left' : 'right';
+                            const side = (obstacle.position && obstacle.position.includes('left')) ? 'left' : 'right';
                             voiceAlert = `Person detected on your ${side} side.`;
                         } else if (obstacle.size === 'tiny') {
                             let dirCue = "ahead";
@@ -2119,17 +2141,15 @@
                             else if (obstacle.position === 'right' || obstacle.position === 'aside_right') dirCue = "on your right";
                             voiceAlert = `Watch your step, small object on the floor ${dirCue} 2 steps ahead.`;
                         } else if (obstacle.position === 'behind') {
-                            voiceAlert = `Warning, ${obstacle.label || "obstacle"} detected behind you.`;
+                            voiceAlert = `Warning, ${itemLabel} detected behind you.`;
                         } else {
-                            // Generic obstacle fallback
                             let posDesc = "ahead";
-                            if (obstacle.position.includes('left')) posDesc = "on your left";
-                            if (obstacle.position.includes('right')) posDesc = "on your right";
-                            voiceAlert = `${obstacle.label} ${posDesc}.`;
+                            if (obstacle.position && obstacle.position.includes('left')) posDesc = "on your left";
+                            if (obstacle.position && obstacle.position.includes('right')) posDesc = "on your right";
+                            voiceAlert = `${itemLabel} ${posDesc}.`;
                         }
 
-                        // Do not speak for simulated targets
-                        if (obstacle.label && obstacle.label.toLowerCase().includes('simulated')) {
+                        if (itemLabel && itemLabel.toLowerCase().includes('simulated')) {
                             voiceAlert = "";
                         }
 
@@ -2144,7 +2164,7 @@
                         setTimeout(() => {
                             const freq = panVal === -1.0 ? 800 : (panVal === 1.0 ? 550 : 300);
                             playSpatialBeep(freq, panVal, 0.25);
-                            screenReaderAnnounce(`Obstacle ${obstacle.label} on ${obstacle.position}`);
+                            screenReaderAnnounce(`Obstacle ${itemLabel} on ${obstacle.position || 'path'}`);
                         }, i * 300);
                     });
                 }
@@ -2629,7 +2649,8 @@
                 if (data && data.response) {
                     const respText = data.response;
                     if (narratorOutput) narratorOutput.textContent = respText;
-                    speakText(respText, 1);
+                    const respLang = detectScriptLanguage(respText) || detectedQueryLang;
+                    speakText(respText, 1, null, null, null, respLang);
                 } else {
                     const fallback = "I could not retrieve an answer at the moment.";
                     if (narratorOutput) narratorOutput.textContent = fallback;

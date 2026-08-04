@@ -2589,10 +2589,53 @@
             }
         }
 
+        function stripWakeWords(text) {
+            if (!text) return '';
+            let clean = text.trim();
+            clean = clean.replace(/^(hey\s+a\.?j\.?|a\.?j\.?|hey)\s*/i, '').trim();
+            return clean || text.trim();
+        }
+
+        function extractNavigationDestination(text) {
+            if (!text) return null;
+            const norm = text.toLowerCase().trim();
+
+            const triggers = [
+                "can you navigate me to",
+                "can you navigate to",
+                "navigate me to",
+                "navigate to",
+                "take me to",
+                "find a route to",
+                "find route to",
+                "route to",
+                "directions to",
+                "how do i get to",
+                "guide me to",
+                "path to"
+            ];
+
+            for (const trig of triggers) {
+                if (norm.includes(trig)) {
+                    const parts = norm.split(trig);
+                    if (parts.length > 1 && parts[1].trim()) {
+                        let dest = parts[1].trim();
+                        dest = dest.replace(/[.,?!]+$/, '').trim();
+                        if (dest) return dest;
+                    }
+                }
+            }
+            return null;
+        }
+
         function processVoiceCommand(text) {
             if (!text || !text.trim()) return;
-            const normalizedText = text.toLowerCase().trim();
 
+            const cleanText = stripWakeWords(text);
+            const normalizedText = cleanText.toLowerCase().trim();
+            console.log("[Voice Command Processing]: Raw:", text, "-> Cleaned:", cleanText);
+
+            // 1. System Control: Stop scanning
             if (normalizedText.includes("vision stop") || normalizedText === "stop") {
                 isAutoscanActive = false;
                 if (scanTimeout) {
@@ -2606,6 +2649,7 @@
                 return;
             }
             
+            // 2. System Control: Trigger Vision Scan
             if (normalizedText === "vision scan" || normalizedText === "scan" || normalizedText.includes("start scan")) {
                 if (isAutoscanActive) {
                     forceManualScan();
@@ -2625,21 +2669,27 @@
                 speakText("Vision Assistant is ready. Say vision scan to detect objects. Say vision stop to pause.");
                 return;
             }
-            
-            if (normalizedText.includes("navigate to")) {
-                let destination = "your destination";
-                const splitText = normalizedText.split("navigate to")[1];
-                if (splitText && splitText.trim() !== "") {
-                    destination = splitText.trim();
+
+            // 3. Navigation Intent Detection ('navigate', 'take me to', 'route to', 'directions to', etc.)
+            const isNavIntent = normalizedText.includes("navigate") || 
+                                normalizedText.includes("take me to") || 
+                                normalizedText.includes("route to") || 
+                                normalizedText.includes("directions to") || 
+                                normalizedText.includes("how do i get to") || 
+                                normalizedText.includes("guide me to");
+
+            if (isNavIntent) {
+                const navDestination = extractNavigationDestination(normalizedText) || cleanText.replace(/.*?(navigate\s+(me\s+)?to|take\s+me\s+to|route\s+to|directions\s+to|how\s+do\s+i\s+get\s+to|guide\s+me\s+to)\s+/i, '').trim();
+                if (navDestination) {
+                    badgeGpsDest.className = 'badge success-badge';
+                    badgeGpsDest.querySelector('span').textContent = navDestination.substring(0, 15);
+                    triggerNavigationRoute(navDestination);
+                    return;
                 }
-                badgeGpsDest.className = 'badge success-badge';
-                badgeGpsDest.querySelector('span').textContent = destination.substring(0, 15);
-                triggerNavigationRoute(destination);
-                return;
             }
 
-            // Remove rigid command restrictions: ALL conversational queries go to Gemini /chat!
-            sendChatQuery(text);
+            // 4 & 5. ALL OTHER queries go straight to /chat backend!
+            sendChatQuery(cleanText);
         }
 
         // --- Leaflet.js Map Integration ---
@@ -2852,8 +2902,9 @@
         }
 
         async function triggerNavigationRoute(dest) {
-            const calcAnnounce = getTranslation('route_calc') + dest + '.';
-            ajSpeak(calcAnnounce);
+            const calcAnnounce = `Calculating route to ${dest}.`;
+            if (narratorOutput) narratorOutput.textContent = calcAnnounce;
+            speakText(calcAnnounce, 1);
 
             let origin = null;
             if (window.userLat && window.userLon) {
@@ -2870,16 +2921,33 @@
             }
 
             if (!origin) {
-                ajSpeak('Sorry, I could not determine your current location. Please ensure GPS is enabled.');
+                speakText('Sorry, I could not determine your current location. Please ensure GPS is enabled.', 1);
                 return;
             }
 
-            // Geocode destination via Nominatim
+            // Localized geocoding via Nominatim: use viewbox around current GPS coordinates & place name fallback
             let destCoords = null;
             let finalDestName = dest;
             try {
-                const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(dest)}&limit=1`);
-                const data = await res.json();
+                let searchUrl = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(dest)}&limit=1`;
+                if (origin) {
+                    const lat = origin[0];
+                    const lon = origin[1];
+                    const delta = 0.15; // ~15km bounding box for nearby place queries
+                    const viewbox = `${lon - delta},${lat + delta},${lon + delta},${lat - delta}`;
+                    searchUrl = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(dest)}&viewbox=${encodeURIComponent(viewbox)}&limit=1`;
+                }
+
+                let res = await fetch(searchUrl);
+                let data = await res.json();
+
+                // If localized viewbox search yielded no results, fallback to appending userCurrentPlaceName
+                if ((!data || data.length === 0) && window.userCurrentPlaceName) {
+                    const fallbackQuery = `${dest}, ${window.userCurrentPlaceName}`;
+                    res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(fallbackQuery)}&limit=1`);
+                    data = await res.json();
+                }
+
                 if (data && data.length > 0) {
                     destCoords = [parseFloat(data[0].lat), parseFloat(data[0].lon)];
                     finalDestName = data[0].display_name.split(',')[0] || dest;
@@ -2891,7 +2959,7 @@
             if (destCoords) {
                 calculateAndDisplayRoute(origin, destCoords, finalDestName);
             } else {
-                ajSpeak(`Sorry, I could not find the location for ${dest}.`);
+                speakText(`Sorry, I could not find the location for ${dest}.`, 1);
             }
         }
 

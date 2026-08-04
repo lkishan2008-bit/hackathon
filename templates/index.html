@@ -1619,6 +1619,16 @@
             if (lang && lang[key]) return lang[key];
             return translations["english"][key] || key;
         }
+
+        function getEventTranslation(text, lang = null) {
+            if (!text) return "";
+            const targetLangKey = lang || selectedLanguageKey || "english";
+            const langMap = eventTranslations[targetLangKey] || eventTranslations["english"];
+            if (langMap && langMap[text]) {
+                return langMap[text];
+            }
+            return text;
+        }
         async function startMicrophoneMonitoring() {
             try {
                 initAudioContext();
@@ -1878,32 +1888,23 @@
             const centerY = height / 2;
             const radius = width / 2;
 
-            // Map distance linearly: up to 50 meters max radius (mapped to radius * 0.95)
             let dist = typeof distance_m === 'number' ? distance_m : 25;
             if (dist < 0) dist = 0;
             if (dist > 50) dist = 50;
 
-            const d = (dist / 50) * (radius * 0.95);
+            const r = (dist / 50) * (radius * 0.95);
 
-            let px = centerX;
-            let py = centerY;
+            let angleRad = -Math.PI / 2; // Ahead (12 o'clock)
+            if (position === 'left') angleRad = -3 * Math.PI / 4; // Top-left
+            else if (position === 'aside_left') angleRad = -Math.PI; // 9 o'clock
+            else if (position === 'right') angleRad = -Math.PI / 4; // Top-right
+            else if (position === 'aside_right') angleRad = 0; // 3 o'clock
+            else if (position === 'behind') angleRad = Math.PI / 2; // 6 o'clock
+            else if (position === 'center' || position === 'front') angleRad = -Math.PI / 2; // 12 o'clock
 
-            if (position === 'left' || position === 'aside_left' || position === 'aside') {
-                px = centerX - d;
-                py = centerY;
-            } else if (position === 'right' || position === 'aside_right') {
-                px = centerX + d;
-                py = centerY;
-            } else if (position === 'center' || position === 'front') {
-                px = centerX;
-                py = centerY - d;
-            } else if (position === 'behind') {
-                px = centerX;
-                py = centerY + d;
-            } else {
-                px = centerX;
-                py = centerY - d;
-            }
+            const px = centerX + r * Math.cos(angleRad);
+            const py = centerY + r * Math.sin(angleRad);
+
             return { x: px, y: py };
         }
 
@@ -2030,121 +2031,125 @@
 
         // Process Gemini API Result & Trigger Spatial Sounds
         function processAIResult(payload) {
-            badgeScan.className = 'badge success-badge';
-            badgeScan.querySelector('span').textContent = "Synced";
-            if (blipsHolder) {
-                blipsHolder.innerHTML = '';
-            }
-
-            // Clear and rebuild the persistent targets array on each successful /analyze response
-            activeRadarTargets = [];
-            radarHazards = activeRadarTargets; // keep legacy alias in sync
-
-            // Handle Smart Danger Alerts
-            if (payload.smart_danger && payload.smart_danger.detected) {
-                handleDangerDetected(payload.smart_danger);
-                return;
-            } else if (isDangerActive) {
-                handleDangerCleared();
-                return;
-            }
-
-            // Sudden event checking: vehicles, running people, sudden darkness, rain, smoke
-            if (payload.detected_events) {
-                const events = payload.detected_events;
-                for (const eventName in events) {
-                    if (events[eventName] === true) {
-                        // High-Priority Alert! Interrupt immediately!
-                        playSpatialBeep(1400, 0, 0.4);
-                        
-                        const translatedEvent = getEventTranslation(eventName);
-                        const warningSpeech = getTranslation("caution") + " " + translatedEvent + " " + getTranslation("detected");
-                        
-                        screenReaderAnnounce(warningSpeech, "assertive");
-                        speakText(warningSpeech, 1); // Strict immediate interrupt
-                        
-                        // Break after first matched event to prevent verbal overlap
-                        return;
-                    }
+            try {
+                badgeScan.className = 'badge success-badge';
+                badgeScan.querySelector('span').textContent = "Synced";
+                if (blipsHolder) {
+                    blipsHolder.innerHTML = '';
                 }
-            }
 
-            // Real-time scan voice announcers
-            narratorOutput.textContent = payload.description;
-            currentTextToRead = payload.description;
-            speakText(payload.description, 0); // Normal scan priority
+                // Clear and rebuild the persistent targets array on each successful /analyze response
+                activeRadarTargets = [];
+                radarHazards = activeRadarTargets; // keep legacy alias in sync
 
-            // Spatial Obstacles mapping
-            if (payload.obstacles && payload.obstacles.length > 0) {
-                payload.obstacles.forEach((obstacle, i) => {
-                    let panVal = 0.0;
+                // Handle Smart Danger Alerts
+                if (payload.smart_danger && payload.smart_danger.detected) {
+                    handleDangerDetected(payload.smart_danger);
+                    return;
+                } else if (isDangerActive) {
+                    handleDangerCleared();
+                    return;
+                }
 
-                    if (obstacle.position === 'left' || obstacle.position === 'aside_left') {
-                        panVal = -1.0;
-                    } else if (obstacle.position === 'right' || obstacle.position === 'aside_right') {
-                        panVal = 1.0;
-                    }
-
-                    const coords = getRadarCoords(obstacle.position, obstacle.distance_m, 130, 130);
-
-                    let hType = "normal";
-                    const labelLower = (obstacle.label || "").toLowerCase();
-                    const isPerson = labelLower.includes("person") || labelLower.includes("man") || labelLower.includes("woman") || labelLower.includes("people") || labelLower.includes("child") || labelLower.includes("pedestrian");
-                    
-                    if (isPerson && (obstacle.position === 'aside_left' || obstacle.position === 'aside_right' || obstacle.position === 'aside')) {
-                        hType = "person_aside";
-                    } else if (obstacle.position === 'aside_left' || obstacle.position === 'aside_right' || obstacle.position === 'aside') {
-                        hType = "aside";
-                    }
-
-                    activeRadarTargets.push({
-                        x: coords.x,
-                        y: coords.y,
-                        type: hType,
-                        size: obstacle.size || "normal",
-                        label: obstacle.label,
-                        addedTime: Date.now()
-                    });
-
-                    // Directional voice alert alerts
-                    let voiceAlert = "";
-                    if (isPerson && (obstacle.position === 'aside_left' || obstacle.position === 'aside_right' || obstacle.position === 'left' || obstacle.position === 'right')) {
-                        const side = (obstacle.position.includes('left') || obstacle.position === 'left') ? 'left' : 'right';
-                        voiceAlert = `Person detected on your ${side} side.`;
-                    } else if (obstacle.size === 'tiny') {
-                        let dirCue = "ahead";
-                        if (obstacle.position === 'left' || obstacle.position === 'aside_left') dirCue = "on your left";
-                        else if (obstacle.position === 'right' || obstacle.position === 'aside_right') dirCue = "on your right";
-                        voiceAlert = `Watch your step, small object on the floor ${dirCue} 2 steps ahead.`;
-                    } else if (obstacle.position === 'behind') {
-                        voiceAlert = `Warning, ${obstacle.label || "obstacle"} detected behind you.`;
-                    } else {
-                        // Generic obstacle fallback
-                        let posDesc = "ahead";
-                        if (obstacle.position.includes('left')) posDesc = "on your left";
-                        if (obstacle.position.includes('right')) posDesc = "on your right";
-                        voiceAlert = `${obstacle.label} ${posDesc}.`;
-                    }
-
-                    // Do not speak for simulated targets
-                    if (obstacle.label && obstacle.label.toLowerCase().includes('simulated')) {
-                        voiceAlert = "";
-                    }
-
-                    if (voiceAlert) {
-                        const nowTime = Date.now();
-                        if (!window.lastObstacleSpeechTime || (nowTime - window.lastObstacleSpeechTime > 3000)) {
-                            speakText(voiceAlert, 1);
-                            window.lastObstacleSpeechTime = nowTime;
+                // Sudden event checking: vehicles, running people, sudden darkness, rain, smoke
+                if (payload.detected_events) {
+                    const events = payload.detected_events;
+                    for (const eventName in events) {
+                        if (events[eventName] === true) {
+                            // High-Priority Alert! Interrupt immediately!
+                            playSpatialBeep(1400, 0, 0.4);
+                            
+                            const translatedEvent = getEventTranslation(eventName);
+                            const warningSpeech = getTranslation("caution") + " " + translatedEvent + " " + getTranslation("detected");
+                            
+                            screenReaderAnnounce(warningSpeech, "assertive");
+                            speakText(warningSpeech, 1); // Strict immediate interrupt
+                            
+                            // Break after first matched event to prevent verbal overlap
+                            return;
                         }
                     }
+                }
 
-                    setTimeout(() => {
-                        const freq = panVal === -1.0 ? 800 : (panVal === 1.0 ? 550 : 300);
-                        playSpatialBeep(freq, panVal, 0.25);
-                        screenReaderAnnounce(`Obstacle ${obstacle.label} on ${obstacle.position}`);
-                    }, i * 300);
-                });
+                // Real-time scan voice announcers
+                narratorOutput.textContent = payload.description;
+                currentTextToRead = payload.description;
+                speakText(payload.description, 0); // Normal scan priority
+
+                // Spatial Obstacles mapping
+                if (payload.obstacles && payload.obstacles.length > 0) {
+                    payload.obstacles.forEach((obstacle, i) => {
+                        let panVal = 0.0;
+
+                        if (obstacle.position === 'left' || obstacle.position === 'aside_left') {
+                            panVal = -1.0;
+                        } else if (obstacle.position === 'right' || obstacle.position === 'aside_right') {
+                            panVal = 1.0;
+                        }
+
+                        const coords = getRadarCoords(obstacle.position, obstacle.distance_m, 130, 130);
+
+                        let hType = "normal";
+                        const labelLower = (obstacle.label || "").toLowerCase();
+                        const isPerson = labelLower.includes("person") || labelLower.includes("man") || labelLower.includes("woman") || labelLower.includes("people") || labelLower.includes("child") || labelLower.includes("pedestrian");
+                        
+                        if (isPerson && (obstacle.position === 'aside_left' || obstacle.position === 'aside_right' || obstacle.position === 'aside')) {
+                            hType = "person_aside";
+                        } else if (obstacle.position === 'aside_left' || obstacle.position === 'aside_right' || obstacle.position === 'aside') {
+                            hType = "aside";
+                        }
+
+                        activeRadarTargets.push({
+                            x: coords.x,
+                            y: coords.y,
+                            type: hType,
+                            size: obstacle.size || "normal",
+                            label: obstacle.label,
+                            addedTime: Date.now()
+                        });
+
+                        // Directional voice alert alerts
+                        let voiceAlert = "";
+                        if (isPerson && (obstacle.position === 'aside_left' || obstacle.position === 'aside_right' || obstacle.position === 'left' || obstacle.position === 'right')) {
+                            const side = (obstacle.position.includes('left') || obstacle.position === 'left') ? 'left' : 'right';
+                            voiceAlert = `Person detected on your ${side} side.`;
+                        } else if (obstacle.size === 'tiny') {
+                            let dirCue = "ahead";
+                            if (obstacle.position === 'left' || obstacle.position === 'aside_left') dirCue = "on your left";
+                            else if (obstacle.position === 'right' || obstacle.position === 'aside_right') dirCue = "on your right";
+                            voiceAlert = `Watch your step, small object on the floor ${dirCue} 2 steps ahead.`;
+                        } else if (obstacle.position === 'behind') {
+                            voiceAlert = `Warning, ${obstacle.label || "obstacle"} detected behind you.`;
+                        } else {
+                            // Generic obstacle fallback
+                            let posDesc = "ahead";
+                            if (obstacle.position.includes('left')) posDesc = "on your left";
+                            if (obstacle.position.includes('right')) posDesc = "on your right";
+                            voiceAlert = `${obstacle.label} ${posDesc}.`;
+                        }
+
+                        // Do not speak for simulated targets
+                        if (obstacle.label && obstacle.label.toLowerCase().includes('simulated')) {
+                            voiceAlert = "";
+                        }
+
+                        if (voiceAlert) {
+                            const nowTime = Date.now();
+                            if (!window.lastObstacleSpeechTime || (nowTime - window.lastObstacleSpeechTime > 3000)) {
+                                speakText(voiceAlert, 1);
+                                window.lastObstacleSpeechTime = nowTime;
+                            }
+                        }
+
+                        setTimeout(() => {
+                            const freq = panVal === -1.0 ? 800 : (panVal === 1.0 ? 550 : 300);
+                            playSpatialBeep(freq, panVal, 0.25);
+                            screenReaderAnnounce(`Obstacle ${obstacle.label} on ${obstacle.position}`);
+                        }, i * 300);
+                    });
+                }
+            } finally {
+                isAnalyzing = false;
             }
         }
 
@@ -2198,12 +2203,19 @@
         }
 
         // Voice Synthesis Engine - priority-based non-blocking speech manager
+        let lastSpokenText = "";
         function speakText(text, priority = 0, rate = null, pitch = null, volume = null) {
-            // IRONCLAD FILTER: Block repetitive offline/simulation fallback voice loops
-            if (!text || text.toLowerCase().includes("offline safety mode") || text.toLowerCase().includes("simulation tracking")) {
-                console.warn("[speakText] Blocked repeating safety voice alert loop:", text);
+            if (!text) return;
+
+            // Silence duplicate alerts or safety mode loops cleanly without console noise
+            if (text === lastSpokenText) {
                 return;
             }
+            if (text.toLowerCase().includes("offline safety mode") || text.toLowerCase().includes("simulation tracking")) {
+                lastSpokenText = text;
+                return;
+            }
+            lastSpokenText = text;
             
             // If another speak is running, do not let lower-priority interrupt it
             if (speakInProgress && currentSpeechPriority > priority) {
@@ -2212,7 +2224,9 @@
 
             try {
                 if (speechSynth.speaking) {
-                    speechSynth.cancel();
+                    if (currentSpeechPriority <= priority) {
+                        speechSynth.cancel();
+                    }
                 }
                 
                 // Chrome SpeechSynthesis freeze workaround
@@ -2240,7 +2254,7 @@
             
             utterance.lang = targetLang;
 
-            // Extract 2-letter ISO prefix (e.g. 'fr', 'es', 'de', 'ja', 'ar', 'kn', 'hi', 'zh', etc.)
+            // Extract 2-letter ISO prefix (e.g. 'fr', 'es', 'de', 'ja', 'ar', 'kn', 'hi', 'te', 'zh', etc.)
             const isoPrefix = targetLang.substring(0, 2).toLowerCase();
 
             let chosenVoice = null;
@@ -2255,7 +2269,7 @@
                     }
                 }
             }
-            // 2nd Pass: Fallback to any voice matching ISO prefix
+            // 2nd Pass: Fallback to any voice matching locale or ISO prefix
             if (!chosenVoice) {
                 for (let i = 0; i < voices.length; i++) {
                     const vLang = voices[i].lang.toLowerCase().replace('_', '-');

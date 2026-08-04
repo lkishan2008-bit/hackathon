@@ -1598,25 +1598,22 @@
                 viewportContainer.classList.add('active-border');
                 screenReaderAnnounce("Webcam interface active.");
 
-                // Auto-start scanning once video feed generates valid frames
+                // Kickstart frame scanning & radar on video element 'play' event
+                webcam.addEventListener('play', () => {
+                    badgeScan.className = 'badge success-badge';
+                    badgeScan.querySelector('span').textContent = "Scan Active";
+                    if (!isAutoscanActive) {
+                        isAutoscanActive = true;
+                        isScanLoopRunning = true;
+                        triggerFastScanCycle();
+                    }
+                }, { once: false });
+
                 webcam.onloadedmetadata = () => {
                     webcam.play().catch(e => console.warn(e));
-                    badgeScan.className = 'badge success-badge';
-                    badgeScan.querySelector('span').textContent = "Scan Active";
-                    if (!isAutoscanActive) {
-                        isAutoscanActive = true;
-                        isScanLoopRunning = true;
-                        triggerFastScanCycle();
-                    }
                 };
                 if (webcam.readyState >= 2) {
-                    badgeScan.className = 'badge success-badge';
-                    badgeScan.querySelector('span').textContent = "Scan Active";
-                    if (!isAutoscanActive) {
-                        isAutoscanActive = true;
-                        isScanLoopRunning = true;
-                        triggerFastScanCycle();
-                    }
+                    webcam.play().catch(e => console.warn(e));
                 }
             } catch (e) {
                 console.error("Camera startup failed:", e);
@@ -1629,19 +1626,32 @@
 
         // Web Audio analysis for sudden loud sounds (vehicle horns)
 
+        function getAudioContext() {
+            try {
+                if (!audioContext) {
+                    const AudioCtxClass = window.AudioContext || window.webkitAudioContext;
+                    if (AudioCtxClass) {
+                        audioContext = new AudioCtxClass();
+                    }
+                }
+                if (audioContext && audioContext.state === 'suspended') {
+                    audioContext.resume().catch(e => console.warn("AudioContext resume failed:", e));
+                }
+                return audioContext;
+            } catch (e) {
+                console.warn("getAudioContext failed:", e);
+                return null;
+            }
+        }
+
         function initAudioContext() {
-            if (!audioContext) {
-                audioContext = new (window.AudioContext || window.webkitAudioContext)();
-            }
-            if (audioContext && audioContext.state === 'suspended') {
-                audioContext.resume().catch(e => console.warn("AudioContext resume:", e));
-            }
+            return getAudioContext();
         }
 
         // Global user interaction listener to unblock WebAudio and SpeechSynthesis autoplay policies
         ['click', 'touchstart', 'keydown'].forEach(evt => {
             document.addEventListener(evt, () => {
-                initAudioContext();
+                getAudioContext();
                 if (window.speechSynthesis && window.speechSynthesis.paused) {
                     try { window.speechSynthesis.resume(); } catch(e) {}
                 }
@@ -2281,8 +2291,12 @@
         function speakText(text, priority = 0, rate = null, pitch = null, volume = null, forcedLang = null) {
             if (!text) return;
 
-            // Ensure AudioContext and SpeechSynthesis are resumed prior to speech
-            initAudioContext();
+            // Unblock speech synthesis directly without AudioContext dependencies
+            try {
+                if (window.speechSynthesis && window.speechSynthesis.paused) {
+                    window.speechSynthesis.resume();
+                }
+            } catch(e) {}
 
             // Silence duplicate alerts or safety mode loops cleanly without console noise
             if (text === lastSpokenText) {
@@ -3390,7 +3404,7 @@
 
                     if (hasNearObstacle) {
                         try {
-                            const audioCtx = window.audioContext || new (window.AudioContext || window.webkitAudioContext)();
+                            const audioCtx = getAudioContext();
                             if (audioCtx) {
                                 const osc = audioCtx.createOscillator();
                                 const gain = audioCtx.createGain();
@@ -3465,7 +3479,7 @@
 
             // Play an audio chime/beep when wake word is recognized
             try {
-                const audioCtx = window.audioContext || new (window.AudioContext || window.webkitAudioContext)();
+                const audioCtx = getAudioContext();
                 if (audioCtx) {
                     const osc = audioCtx.createOscillator();
                     const gain = audioCtx.createGain();

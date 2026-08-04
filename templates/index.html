@@ -2701,31 +2701,45 @@
             if (volume !== null) utterance.volume = volume;
 
             const voices = speechSynth.getVoices();
-            const detectedLang = detectScriptLanguage(text);
-            const targetLang = detectedLang || (supportedLanguages[selectedLanguageKey] ? supportedLanguages[selectedLanguageKey].code : 'en-US');
-            
-            utterance.lang = forcedLang || targetLang;
 
-            // Extract 2-letter ISO prefix (e.g. 'fr', 'es', 'de', 'ja', 'ar', 'kn', 'hi', 'te', 'zh', etc.)
-            const isoPrefix = targetLang.substring(0, 2).toLowerCase();
+            // ── STRICT ENGLISH ENFORCEMENT ──────────────────────────────────
+            // Always lock the utterance to en-US regardless of system locale or
+            // detected script — this prevents iOS Safari / Android Chrome WebKit
+            // from switching to the device's regional voice (e.g. hi-IN, kn-IN).
+            utterance.lang = 'en-US';
 
             let chosenVoice = null;
-            // 1st Pass: Preferred neural/google/natural/female voice matching target locale or ISO prefix
+
+            // Pass 1 — preferred: high-quality English neural/Google/natural voice
             for (let i = 0; i < voices.length; i++) {
                 const vLang = voices[i].lang.toLowerCase().replace('_', '-');
-                if (vLang.startsWith(targetLang.toLowerCase()) || vLang.startsWith(isoPrefix)) {
+                if (vLang.startsWith('en')) {
                     const vName = voices[i].name.toLowerCase();
-                    if (vName.includes('google') || vName.includes('natural') || vName.includes('female') || vName.includes('neural') || vName.includes('premium')) {
+                    if (vName.includes('google') || vName.includes('neural') ||
+                        vName.includes('natural') || vName.includes('female') ||
+                        vName.includes('premium') || vName.includes('enhanced') ||
+                        vName.includes('samantha') || vName.includes('karen') ||
+                        vName.includes('daniel') || vName.includes('alex')) {
                         chosenVoice = voices[i];
                         break;
                     }
                 }
             }
-            // 2nd Pass: Fallback to any voice matching locale or ISO prefix
+            // Pass 2 — fallback: any en-US voice
             if (!chosenVoice) {
                 for (let i = 0; i < voices.length; i++) {
                     const vLang = voices[i].lang.toLowerCase().replace('_', '-');
-                    if (vLang.startsWith(targetLang.toLowerCase()) || vLang.startsWith(isoPrefix)) {
+                    if (vLang.startsWith('en-us')) {
+                        chosenVoice = voices[i];
+                        break;
+                    }
+                }
+            }
+            // Pass 3 — last resort: any English voice (en-GB, en-AU, en-IN, etc.)
+            if (!chosenVoice) {
+                for (let i = 0; i < voices.length; i++) {
+                    const vLang = voices[i].lang.toLowerCase().replace('_', '-');
+                    if (vLang.startsWith('en')) {
                         chosenVoice = voices[i];
                         break;
                     }

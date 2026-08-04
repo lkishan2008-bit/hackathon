@@ -2977,32 +2977,109 @@
                 return;
             }
 
-            // Localized geocoding via Nominatim: use viewbox around current GPS coordinates & place name fallback
+        async function geocodeLocationQuery(query, origin) {
+            const cleanQuery = query.trim();
+            const lowerQuery = cleanQuery.toLowerCase();
+
+            // Determine dynamic viewbox: use user GPS if available, else default to Bengaluru (77.3,13.3,77.8,12.8)
+            let viewboxStr = "77.3,13.3,77.8,12.8";
+            if (origin && origin[0] && origin[1]) {
+                const lat = origin[0];
+                const lon = origin[1];
+                const delta = 0.25; // ~25km bounding box around user position
+                viewboxStr = `${lon - delta},${lat + delta},${lon + delta},${lat - delta}`;
+            }
+
+            // 1. Regional context: append ', Bengaluru, Karnataka, India' if regional terms aren't already present
+            let searchLocation = cleanQuery;
+            if (!lowerQuery.includes('bengaluru') && !lowerQuery.includes('bangalore') && 
+                !lowerQuery.includes('karnataka') && !lowerQuery.includes('india')) {
+                searchLocation = `${cleanQuery}, Bengaluru, Karnataka, India`;
+            }
+
+            // Search Tier 1: searchLocation with viewbox, bounded=1 & countrycodes=in
+            try {
+                let url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(searchLocation)}&viewbox=${encodeURIComponent(viewboxStr)}&bounded=1&countrycodes=in&limit=1`;
+                let res = await fetch(url);
+                let data = await res.json();
+                if (data && data.length > 0) return data[0];
+
+                // Tier 1 Fallback: without strict viewbox bounding, but restricted to India
+                url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(searchLocation)}&countrycodes=in&limit=1`;
+                res = await fetch(url);
+                data = await res.json();
+                if (data && data.length > 0) return data[0];
+            } catch (e) {
+                console.warn("Tier 1 geocoding search failed:", e);
+            }
+
+            // 2. Search Tier 2: Fallback to searching query + ', Karnataka, India'
+            try {
+                const rawName = cleanQuery.replace(/,\s*(Bengaluru|Bangalore|Karnataka|India).*/i, '').trim();
+                const tier2Location = `${rawName}, Karnataka, India`;
+                const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(tier2Location)}&countrycodes=in&limit=1`;
+                const res = await fetch(url);
+                const data = await res.json();
+                if (data && data.length > 0) return data[0];
+            } catch (e) {
+                console.warn("Tier 2 geocoding search failed:", e);
+            }
+
+            // 3. Search Tier 3: Fallback with userCurrentPlaceName or raw query restricted to India
+            try {
+                let fallbackLocation = cleanQuery;
+                if (window.userCurrentPlaceName && !lowerQuery.includes(window.userCurrentPlaceName.toLowerCase())) {
+                    fallbackLocation = `${cleanQuery}, ${window.userCurrentPlaceName}`;
+                }
+                let url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(fallbackLocation)}&countrycodes=in&limit=1`;
+                let res = await fetch(url);
+                let data = await res.json();
+                if (data && data.length > 0) return data[0];
+
+                // Last resort: search raw query restricted to India
+                url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(cleanQuery)}&countrycodes=in&limit=1`;
+                res = await fetch(url);
+                data = await res.json();
+                if (data && data.length > 0) return data[0];
+            } catch (e) {
+                console.warn("Tier 3 geocoding search failed:", e);
+            }
+
+            return null;
+        }
+
+        async function triggerNavigationRoute(dest) {
+            const calcAnnounce = `Calculating route to ${dest}.`;
+            if (narratorOutput) narratorOutput.textContent = calcAnnounce;
+            speakText(calcAnnounce, 1);
+
+            let origin = null;
+            if (window.userLat && window.userLon) {
+                origin = [window.userLat, window.userLon];
+            } else if (navigator.geolocation) {
+                try {
+                    const pos = await new Promise((resolve, reject) => {
+                        navigator.geolocation.getCurrentPosition(resolve, reject, { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 });
+                    });
+                    origin = [pos.coords.latitude, pos.coords.longitude];
+                } catch(e) {
+                    console.warn('Geolocation failed during routing.', e);
+                }
+            }
+
+            if (!origin) {
+                speakText('Sorry, I could not determine your current location. Please ensure GPS is enabled.', 1);
+                return;
+            }
+
+            // Localized geocoding via Nominatim with regional fallback & country restrictions
             let destCoords = null;
             let finalDestName = dest;
             try {
-                let searchUrl = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(dest)}&limit=1`;
-                if (origin) {
-                    const lat = origin[0];
-                    const lon = origin[1];
-                    const delta = 0.15; // ~15km bounding box for nearby place queries
-                    const viewbox = `${lon - delta},${lat + delta},${lon + delta},${lat - delta}`;
-                    searchUrl = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(dest)}&viewbox=${encodeURIComponent(viewbox)}&limit=1`;
-                }
-
-                let res = await fetch(searchUrl);
-                let data = await res.json();
-
-                // If localized viewbox search yielded no results, fallback to appending userCurrentPlaceName
-                if ((!data || data.length === 0) && window.userCurrentPlaceName) {
-                    const fallbackQuery = `${dest}, ${window.userCurrentPlaceName}`;
-                    res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(fallbackQuery)}&limit=1`);
-                    data = await res.json();
-                }
-
-                if (data && data.length > 0) {
-                    destCoords = [parseFloat(data[0].lat), parseFloat(data[0].lon)];
-                    finalDestName = data[0].display_name.split(',')[0] || dest;
+                const geoResult = await geocodeLocationQuery(dest, origin);
+                if (geoResult) {
+                    destCoords = [parseFloat(geoResult.lat), parseFloat(geoResult.lon)];
+                    finalDestName = geoResult.display_name.split(',')[0] || dest;
                 }
             } catch(e) {
                 console.error('Nominatim geocoding failed', e);

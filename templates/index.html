@@ -2691,6 +2691,20 @@
             }
         }
 
+        function calculateDistanceMeters(lat1, lon1, lat2, lon2) {
+            if (window.L && window.L.latLng) {
+                return window.L.latLng(lat1, lon1).distanceTo([lat2, lon2]);
+            }
+            const R = 6371000; // Earth radius in meters
+            const dLat = (lat2 - lat1) * Math.PI / 180;
+            const dLon = (lon2 - lon1) * Math.PI / 180;
+            const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+                      Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+                      Math.sin(dLon/2) * Math.sin(dLon/2);
+            const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+            return R * c;
+        }
+
         // Real-time GPS tracking — continuous high-accuracy watchPosition
         function startGpsTracking() {
             if (!navigator.geolocation) {
@@ -2732,6 +2746,41 @@
                             const statusDiv = directionsContainer.querySelector('.direction-step div');
                             if (statusDiv && statusDiv.innerHTML.includes('GPS receiver ready.')) {
                                 statusDiv.innerHTML = statusDiv.innerHTML.replace('GPS receiver ready.', 'Live GPS Active (Tracking).');
+                            }
+                        }
+                    }
+
+                    // --- Dynamic Route Progress & Arrival Tracking ---
+                    if (window.activeNavigationRoute && !window.activeNavigationRoute.hasArrived) {
+                        const route = window.activeNavigationRoute;
+                        const remainingMeters = calculateDistanceMeters(lat, lon, route.destCoords[0], route.destCoords[1]);
+
+                        if (remainingMeters <= 15) {
+                            // Only trigger arrival when within 15 meters
+                            route.hasArrived = true;
+                            route.currentStepIdx = 3; // Arrival step
+                            syncDirectionStepUI(3);
+                            ajSpeak(`You have arrived at ${route.destName}. Navigation complete.`);
+                        } else {
+                            // Highlight step card corresponding to user's real GPS progress
+                            const totalD = Math.max(route.totalDistanceMeters, 1);
+                            const progress = Math.max(0, Math.min(0.95, 1 - (remainingMeters / totalD)));
+
+                            let newStepIdx = 0;
+                            if (progress >= 0.66) {
+                                newStepIdx = 2;
+                            } else if (progress >= 0.33) {
+                                newStepIdx = 1;
+                            } else {
+                                newStepIdx = 0;
+                            }
+
+                            if (newStepIdx !== route.currentStepIdx) {
+                                route.currentStepIdx = newStepIdx;
+                                syncDirectionStepUI(newStepIdx);
+                                if (route.steps && route.steps[newStepIdx]) {
+                                    ajSpeak(route.steps[newStepIdx]);
+                                }
                             }
                         }
                     }
@@ -2803,7 +2852,7 @@
 
         async function calculateAndDisplayRoute(origin, destCoords, destName) {
             console.log('--> LEAFLET ROUTING FOR:', destName, 'Origin:', origin, 'Dest:', destCoords);
-            if (!window.leafletMap) { fallbackRouteVisualizer(destName); return; }
+            if (!window.leafletMap) { fallbackRouteVisualizer(destName, origin, destCoords); return; }
 
             // Remove previous destination marker & route
             if (window.leafletDestMarker) { window.leafletMap.removeLayer(window.leafletDestMarker); }
@@ -2849,10 +2898,14 @@
             } else {
                 ajSpeak(`Starting navigation from ${originName} to ${destName}.`);
             }
-            fallbackRouteVisualizer(destName);
+            fallbackRouteVisualizer(destName, origin, destCoords, distanceMeters);
         }
 
-        function fallbackRouteVisualizer(dest) {
+        function fallbackRouteVisualizer(dest, origin, destCoords, routeDistanceMeters) {
+            const originPt = origin || (window.userLat && window.userLon ? [window.userLat, window.userLon] : [0, 0]);
+            const targetPt = destCoords || [0, 0];
+            const totalDist = routeDistanceMeters || calculateDistanceMeters(originPt[0], originPt[1], targetPt[0], targetPt[1]);
+
             const steps = [
                 `Proceed straight ahead toward ${dest}.`,
                 "In 20 meters, turn right at the crosswalk.",
@@ -2860,31 +2913,26 @@
                 `You have arrived at ${dest}.`
             ];
 
-            directionsContainer.innerHTML = '';
-            steps.forEach((stepText, idx) => {
-                const el = document.createElement('div');
-                el.className = `direction-step ${idx === 0 ? 'active-step' : ''}`;
-                el.innerHTML = `<i class="fa-solid ${idx === steps.length - 1 ? 'fa-circle-check' : 'fa-arrow-turn-right'}"></i><div>${stepText}</div>`;
-                directionsContainer.appendChild(el);
-            });
+            window.activeNavigationRoute = {
+                destName: dest,
+                destCoords: targetPt,
+                originCoords: originPt,
+                totalDistanceMeters: totalDist,
+                steps: steps,
+                currentStepIdx: 0,
+                hasArrived: false
+            };
 
-            let currentStep = 0;
-            const routeGuidanceTimer = setInterval(() => {
-                if (!isVoiceRecogActive) {
-                    clearInterval(routeGuidanceTimer);
-                    return;
-                }
-                if (currentStep < steps.length) {
-                    speakText(steps[currentStep]);
-                    const stepEls = directionsContainer.querySelectorAll('.direction-step');
-                    stepEls.forEach((el, index) => {
-                        el.classList.toggle('active-step', index === currentStep);
-                    });
-                    currentStep++;
-                } else {
-                    clearInterval(routeGuidanceTimer);
-                }
-            }, 7500);
+            const directionsContainer = document.getElementById('directions-container');
+            if (directionsContainer) {
+                directionsContainer.innerHTML = '';
+                steps.forEach((stepText, idx) => {
+                    const el = document.createElement('div');
+                    el.className = `direction-step ${idx === 0 ? 'active-step' : ''}`;
+                    el.innerHTML = `<i class="fa-solid ${idx === steps.length - 1 ? 'fa-circle-check' : (idx === 1 ? 'fa-arrow-turn-right' : (idx === 2 ? 'fa-arrow-turn-left' : 'fa-arrow-up'))}"></i><div>${stepText}</div>`;
+                    directionsContainer.appendChild(el);
+                });
+            }
         }
 
         // Start initialization on window load

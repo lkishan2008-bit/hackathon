@@ -192,26 +192,29 @@ STRICT RULES FOR YOUR OUTPUT:
             "Content-Type": "application/json"
         }
         
-        # Try primary models and fall back if unavailable
-        models_to_try = ["gemini-3.5-flash", "gemini-2.5-flash", "gemini-1.5-flash", "gemini-1.5-pro"]
+        # Model priority list: start with stable 1.5-flash, then pro, then try 2.x/3.x if available
+        models_to_try = ["gemini-1.5-flash", "gemini-1.5-pro", "gemini-2.5-flash", "gemini-2.0-flash"]
         response = None
         last_error = None
         
         for model_name in models_to_try:
             url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={api_key}"
             try:
-                response = requests.post(url, json=payload, headers=headers, timeout=10)
+                response = requests.post(url, json=payload, headers=headers, timeout=12)
                 if response.status_code == 200:
+                    print(f"[Analyze] Success with model: {model_name}")
                     break
                 else:
-                    last_error = f"API error {response.status_code}: {response.text}"
-                    print(f"Model {model_name} failed with status {response.status_code}, trying next...")
+                    last_error = f"HTTP {response.status_code}: {response.text[:200]}"
+                    print(f"[Analyze] Model {model_name} failed ({response.status_code}), trying next...")
             except Exception as e:
+                import traceback
                 last_error = str(e)
-                print(f"Error calling model {model_name}: {e}, trying next...")
+                print(f"[Analyze] Model {model_name} exception:")
+                traceback.print_exc()
                 
         if not response or response.status_code != 200:
-            raise ValueError(f"All generative model requests failed. Last error: {last_error}")
+            raise ValueError(f"All Gemini models failed. Last error: {last_error}")
         
         gemini_response = response.json()
         # Extract content from response structure and clean markdown fences before json.loads
@@ -292,9 +295,10 @@ def chat():
         if not user_message:
             return jsonify({"response": "I didn't catch that. Could you please repeat?"}), 400
 
-        api_key = os.getenv('GEMINI_API_KEY')
+        api_key = os.environ.get('GEMINI_API_KEY') or os.getenv('GEMINI_API_KEY')
         if not api_key:
-            return jsonify({"response": "Gemini API key is missing."}), 500
+            # No key — return a polite, context-aware inline answer without exposing internals
+            return jsonify({"response": "I am AJ, your navigation assistant. Please set up my Gemini API key to enable full AI responses."}), 200
 
         system_prompt = f"""You are AJ, an ultra-fast, intelligent autonomous spatial mapping and voice navigation assistant for visually impaired users.
 Your response will be spoken out loud via Text-to-Speech directly to the user.
@@ -321,31 +325,38 @@ STRICT RULES FOR YOUR RESPONSE:
         }
 
         headers = {"Content-Type": "application/json"}
-        models_to_try = ["gemini-3.5-flash", "gemini-2.5-flash", "gemini-1.5-flash", "gemini-1.5-pro"]
+        # Primary: gemini-1.5-flash (fast & reliable), fallback chain to pro and newer variants
+        models_to_try = ["gemini-1.5-flash", "gemini-1.5-pro", "gemini-2.5-flash", "gemini-2.0-flash"]
         reply_text = None
 
         for model_name in models_to_try:
             url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={api_key}"
             try:
-                res = requests.post(url, json=payload, headers=headers, timeout=10)
+                res = requests.post(url, json=payload, headers=headers, timeout=12)
                 if res.status_code == 200:
                     g_data = res.json()
                     reply_text = g_data['candidates'][0]['content']['parts'][0]['text']
+                    print(f"[Chat] Success with model: {model_name}")
                     break
                 else:
-                    print(f"Gemini API Error (status {res.status_code}): {res.text}")
+                    print(f"[Chat] Model {model_name} failed ({res.status_code}): {res.text[:200]}")
             except Exception as err:
-                print(f"[Chat] Model {model_name} failed: {err}")
+                import traceback
+                print(f"[Chat] Model {model_name} exception:")
+                traceback.print_exc()
 
         if not reply_text:
-            reply_text = "I am having trouble connecting to my Gemini core right now."
+            # Contextual fallback — never expose internal error messages to the user
+            reply_text = "I am unable to reach my AI core right now. Please check your internet connection or try again in a moment."
 
         # Clean markdown characters
         cleaned_reply = re.sub(r'[*#_`]+', '', reply_text).strip()
         return jsonify({"response": cleaned_reply})
     except Exception as e:
-        print(f"Gemini API Error: {e}")
-        return jsonify({"response": "Sorry, an unexpected error occurred."}), 500
+        import traceback
+        print(f"[Chat] Endpoint exception:")
+        traceback.print_exc()
+        return jsonify({"response": "I am ready to assist. Please try your question again."}), 200
 
 if __name__ == '__main__':
     app.run(debug=True, port=5000, host="0.0.0.0")

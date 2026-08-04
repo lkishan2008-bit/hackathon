@@ -1597,6 +1597,27 @@
                 viewportPlaceholder.style.display = 'none';
                 viewportContainer.classList.add('active-border');
                 screenReaderAnnounce("Webcam interface active.");
+
+                // Auto-start scanning once video feed generates valid frames
+                webcam.onloadedmetadata = () => {
+                    webcam.play().catch(e => console.warn(e));
+                    badgeScan.className = 'badge success-badge';
+                    badgeScan.querySelector('span').textContent = "Scan Active";
+                    if (!isAutoscanActive) {
+                        isAutoscanActive = true;
+                        isScanLoopRunning = true;
+                        triggerFastScanCycle();
+                    }
+                };
+                if (webcam.readyState >= 2) {
+                    badgeScan.className = 'badge success-badge';
+                    badgeScan.querySelector('span').textContent = "Scan Active";
+                    if (!isAutoscanActive) {
+                        isAutoscanActive = true;
+                        isScanLoopRunning = true;
+                        triggerFastScanCycle();
+                    }
+                }
             } catch (e) {
                 console.error("Camera startup failed:", e);
                 webcam.style.display = 'none';
@@ -1612,7 +1633,20 @@
             if (!audioContext) {
                 audioContext = new (window.AudioContext || window.webkitAudioContext)();
             }
+            if (audioContext && audioContext.state === 'suspended') {
+                audioContext.resume().catch(e => console.warn("AudioContext resume:", e));
+            }
         }
+
+        // Global user interaction listener to unblock WebAudio and SpeechSynthesis autoplay policies
+        ['click', 'touchstart', 'keydown'].forEach(evt => {
+            document.addEventListener(evt, () => {
+                initAudioContext();
+                if (window.speechSynthesis && window.speechSynthesis.paused) {
+                    try { window.speechSynthesis.resume(); } catch(e) {}
+                }
+            }, { passive: true });
+        });
 
         function getTranslation(key) {
             const lang = translations[selectedLanguageKey];
@@ -2246,6 +2280,9 @@
         let lastSpokenText = "";
         function speakText(text, priority = 0, rate = null, pitch = null, volume = null, forcedLang = null) {
             if (!text) return;
+
+            // Ensure AudioContext and SpeechSynthesis are resumed prior to speech
+            initAudioContext();
 
             // Silence duplicate alerts or safety mode loops cleanly without console noise
             if (text === lastSpokenText) {
@@ -2904,14 +2941,14 @@
             return R * c;
         }
 
-        // Real-time GPS tracking — continuous high-accuracy watchPosition
+        // Real-time GPS tracking — continuous watchPosition with robust fallback
         function startGpsTracking() {
             if (!navigator.geolocation) {
                 console.warn("Geolocation not supported by this browser.");
                 return;
             }
-            // Precise options as requested
-            const geoOptions = { enableHighAccuracy: true, maximumAge: 0, timeout: 5000 };
+            // Options tuned for desktop & mobile reliability without timeout exceptions
+            const geoOptions = { enableHighAccuracy: false, maximumAge: 10000, timeout: 15000 };
 
             gpsWatchId = navigator.geolocation.watchPosition(
                 (position) => {
@@ -2996,8 +3033,37 @@
                         }
                     }
                 },
-                (err) => {
+                async (err) => {
                     console.warn('GPS watchPosition error:', err.code, err.message);
+                    // Fallback to IP-based location or Karnataka center if GPS fix is unavailable
+                    if (window.userLat === null) {
+                        try {
+                            const res = await fetch('https://ipapi.co/json/');
+                            const ipData = await res.json();
+                            if (ipData && ipData.latitude && ipData.longitude) {
+                                window.userLat = ipData.latitude;
+                                window.userLon = ipData.longitude;
+                                const latlng = [window.userLat, window.userLon];
+                                if (window.leafletMap && window.leafletMarker) {
+                                    window.leafletMap.setView(latlng, 15);
+                                    window.leafletMarker.setLatLng(latlng);
+                                    reverseGeocodeUserLocation(window.userLat, window.userLon);
+                                }
+                                return;
+                            }
+                        } catch (ipErr) {
+                            console.warn('IP location fallback failed:', ipErr);
+                        }
+                        // Default Karnataka fallback (Bengaluru center)
+                        window.userLat = 12.9716;
+                        window.userLon = 77.5946;
+                        const defaultLatLng = [12.9716, 77.5946];
+                        if (window.leafletMap && window.leafletMarker) {
+                            window.leafletMap.setView(defaultLatLng, 14);
+                            window.leafletMarker.setLatLng(defaultLatLng);
+                            reverseGeocodeUserLocation(12.9716, 77.5946);
+                        }
+                    }
                 },
                 geoOptions
             );
@@ -3516,10 +3582,12 @@
             setTimeout(triggerVoiceOnboarding, 1500);
 
             // Auto-start vision scanning after camera has had time to initialize
-            // setTimeout(() => {
-            //     console.log('[Auto-Start] Auto-triggering toggleSystemScanning() on page load for immediate radar testing...');
-            //     toggleSystemScanning();
-            // }, 2500);
+            setTimeout(() => {
+                console.log('[Auto-Start] Auto-triggering toggleSystemScanning() on page load for continuous scanning...');
+                if (!isAutoscanActive) {
+                    toggleSystemScanning();
+                }
+            }, 2500);
         });
 
         if (speechSynth.onvoiceschanged !== undefined) {

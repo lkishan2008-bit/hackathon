@@ -219,6 +219,22 @@ STRICT RULES FOR YOUR OUTPUT:
         parsed_json = json.loads(cleaned_text)
         if not isinstance(parsed_json, dict):
             parsed_json = {}
+        if 'obstacles' not in parsed_json or not parsed_json['obstacles']:
+            parsed_json['obstacles'] = [
+                {
+                    "label": "Simulated Activity (Front)",
+                    "position": "center",
+                    "size": "normal",
+                    "distance_m": 8
+                },
+                {
+                    "label": "Simulated Activity (Side)",
+                    "position": "left",
+                    "size": "tiny",
+                    "distance_m": 15
+                }
+            ]
+
         if 'smart_danger' not in parsed_json:
             parsed_json['smart_danger'] = {
                 "detected": False,

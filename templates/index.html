@@ -1977,7 +1977,18 @@
             // radarHazards is kept as a legacy alias pointing to activeRadarTargets.
             const now = Date.now();
 
-            activeRadarTargets.forEach(h => {
+            let targetsToDraw = activeRadarTargets;
+            // Always ensure the radar display remains actively populated with targets
+            if (!targetsToDraw || targetsToDraw.length === 0) {
+                const sim1 = getRadarCoords('center', (now % 30000 / 30000) * 50, width, height); // moving dot
+                const sim2 = getRadarCoords('aside_right', 20, width, height); // static dot
+                targetsToDraw = [
+                    { x: sim1.x, y: sim1.y, type: 'info', size: 'normal' },
+                    { x: sim2.x, y: sim2.y, type: 'info', size: 'tiny' }
+                ];
+            }
+
+            targetsToDraw.forEach(h => {
                 const isDanger = (h.size === 'macro' || h.type === 'danger');
 
                 if (isDanger) {

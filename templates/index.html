@@ -863,7 +863,7 @@
         
         // Context Variables
         let videoStream = null;
-        let audioContext = null;
+        let audioCtx = null;
         let analyser = null;
         let microphoneStream = null;
         
@@ -1546,34 +1546,42 @@
         };
 
         function playSpatialBeep(freq, pan, duration, volume = 0.3) {
-            initAudioContext();
-            if (!audioContext) return;
+            try {
+                const ctx = ensureAudioContext();
+                if (!ctx) return;
 
-            const osc = audioContext.createOscillator();
-            const gainNode = audioContext.createGain();
-            
-            osc.type = 'sine';
-            osc.frequency.setValueAtTime(freq, audioContext.currentTime);
-            
-            gainNode.gain.setValueAtTime(volume, audioContext.currentTime);
-            gainNode.gain.exponentialRampToValueAtTime(0.0001, audioContext.currentTime + duration);
-            
-            let pannerNode;
-            if (audioContext.createStereoPanner) {
-                pannerNode = audioContext.createStereoPanner();
-                pannerNode.pan.setValueAtTime(pan, audioContext.currentTime);
-            } else {
-                pannerNode = audioContext.createPanner();
-                pannerNode.panningModel = 'HRTF';
-                pannerNode.setPosition(pan, 0, 1 - Math.abs(pan));
+                const osc = ctx.createOscillator();
+                const gainNode = ctx.createGain();
+                
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(freq, ctx.currentTime);
+                
+                gainNode.gain.setValueAtTime(volume, ctx.currentTime);
+                gainNode.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + duration);
+                
+                let pannerNode;
+                if (ctx.createStereoPanner) {
+                    pannerNode = ctx.createStereoPanner();
+                    pannerNode.pan.setValueAtTime(pan, ctx.currentTime);
+                } else if (ctx.createPanner) {
+                    pannerNode = ctx.createPanner();
+                    pannerNode.panningModel = 'HRTF';
+                    pannerNode.setPosition(pan, 0, 1 - Math.abs(pan));
+                }
+                
+                osc.connect(gainNode);
+                if (pannerNode) {
+                    gainNode.connect(pannerNode);
+                    pannerNode.connect(ctx.destination);
+                } else {
+                    gainNode.connect(ctx.destination);
+                }
+                
+                osc.start();
+                osc.stop(ctx.currentTime + duration);
+            } catch (e) {
+                console.warn("[playSpatialBeep]", e);
             }
-            
-            osc.connect(gainNode);
-            gainNode.connect(pannerNode);
-            pannerNode.connect(audioContext.destination);
-            
-            osc.start();
-            osc.stop(audioContext.currentTime + duration);
         }
 
         function screenReaderAnnounce(text, priority = 'polite') {
@@ -1626,32 +1634,36 @@
 
         // Web Audio analysis for sudden loud sounds (vehicle horns)
 
-        function getAudioContext() {
-            try {
-                if (!audioContext) {
+        function ensureAudioContext() {
+            if (!audioCtx) {
+                try {
                     const AudioCtxClass = window.AudioContext || window.webkitAudioContext;
                     if (AudioCtxClass) {
-                        audioContext = new AudioCtxClass();
+                        audioCtx = new AudioCtxClass();
                     }
+                } catch(e) {
+                    console.warn("ensureAudioContext creation failed:", e);
+                    return null;
                 }
-                if (audioContext && audioContext.state === 'suspended') {
-                    audioContext.resume().catch(e => console.warn("AudioContext resume failed:", e));
-                }
-                return audioContext;
-            } catch (e) {
-                console.warn("getAudioContext failed:", e);
-                return null;
             }
+            if (audioCtx && audioCtx.state === 'suspended') {
+                try { audioCtx.resume().catch(e => console.warn("AudioContext resume failed:", e)); } catch(e) {}
+            }
+            return audioCtx;
+        }
+
+        function getAudioContext() {
+            return ensureAudioContext();
         }
 
         function initAudioContext() {
-            return getAudioContext();
+            return ensureAudioContext();
         }
 
         // Global user interaction listener to unblock WebAudio and SpeechSynthesis autoplay policies
         ['click', 'touchstart', 'keydown'].forEach(evt => {
             document.addEventListener(evt, () => {
-                getAudioContext();
+                ensureAudioContext();
                 if (window.speechSynthesis && window.speechSynthesis.paused) {
                     try { window.speechSynthesis.resume(); } catch(e) {}
                 }
@@ -1675,11 +1687,12 @@
         }
         async function startMicrophoneMonitoring() {
             try {
-                initAudioContext();
+                const ctx = ensureAudioContext();
+                if (!ctx) return;
                 microphoneStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                const source = audioContext.createMediaStreamSource(microphoneStream);
+                const source = ctx.createMediaStreamSource(microphoneStream);
                 
-                analyser = audioContext.createAnalyser();
+                analyser = ctx.createAnalyser();
                 analyser.fftSize = 256;
                 source.connect(analyser);
 
@@ -3404,18 +3417,18 @@
 
                     if (hasNearObstacle) {
                         try {
-                            const audioCtx = getAudioContext();
-                            if (audioCtx) {
-                                const osc = audioCtx.createOscillator();
-                                const gain = audioCtx.createGain();
+                            const audioCtxInst = ensureAudioContext();
+                            if (audioCtxInst) {
+                                const osc = audioCtxInst.createOscillator();
+                                const gain = audioCtxInst.createGain();
                                 osc.connect(gain);
-                                gain.connect(audioCtx.destination);
+                                gain.connect(audioCtxInst.destination);
                                 osc.type = 'square';
-                                osc.frequency.setValueAtTime(800, audioCtx.currentTime);
-                                gain.gain.setValueAtTime(0.5, audioCtx.currentTime);
+                                osc.frequency.setValueAtTime(800, audioCtxInst.currentTime);
+                                gain.gain.setValueAtTime(0.5, audioCtxInst.currentTime);
                                 osc.start();
-                                gain.gain.exponentialRampToValueAtTime(0.00001, audioCtx.currentTime + 0.4);
-                                osc.stop(audioCtx.currentTime + 0.4);
+                                gain.gain.exponentialRampToValueAtTime(0.00001, audioCtxInst.currentTime + 0.4);
+                                osc.stop(audioCtxInst.currentTime + 0.4);
                             }
                         } catch (e) {
                             console.warn("Could not play near obstacle beep", e);
@@ -3479,18 +3492,18 @@
 
             // Play an audio chime/beep when wake word is recognized
             try {
-                const audioCtx = getAudioContext();
-                if (audioCtx) {
-                    const osc = audioCtx.createOscillator();
-                    const gain = audioCtx.createGain();
+                const audioCtxInst = ensureAudioContext();
+                if (audioCtxInst) {
+                    const osc = audioCtxInst.createOscillator();
+                    const gain = audioCtxInst.createGain();
                     osc.connect(gain);
-                    gain.connect(audioCtx.destination);
+                    gain.connect(audioCtxInst.destination);
                     osc.type = 'sine';
-                    osc.frequency.setValueAtTime(600, audioCtx.currentTime);
-                    gain.gain.setValueAtTime(0.5, audioCtx.currentTime);
+                    osc.frequency.setValueAtTime(600, audioCtxInst.currentTime);
+                    gain.gain.setValueAtTime(0.5, audioCtxInst.currentTime);
                     osc.start();
-                    gain.gain.exponentialRampToValueAtTime(0.00001, audioCtx.currentTime + 0.3);
-                    osc.stop(audioCtx.currentTime + 0.3);
+                    gain.gain.exponentialRampToValueAtTime(0.00001, audioCtxInst.currentTime + 0.3);
+                    osc.stop(audioCtxInst.currentTime + 0.3);
                 }
             } catch (e) {
                 console.warn("Could not play wake word chime", e);

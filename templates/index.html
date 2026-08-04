@@ -2479,6 +2479,32 @@
             triggerFastScanCycle();
         }
 
+        /**
+         * Dynamically update the language for both speech recognition engines.
+         * Called on language selection change and at init time.
+         * @param {string} langCode  BCP-47 code e.g. 'kn-IN', 'te-IN', 'hi-IN', 'en-US'
+         */
+        function setRecognitionLanguage(langCode) {
+            if (!langCode) return;
+            console.log('[SpeechRecog] Setting language to:', langCode);
+
+            // Update primary recognitionEngine
+            if (recognitionEngine) {
+                recognitionEngine.lang = langCode;
+                if (isRecognitionRunning) {
+                    try { recognitionEngine.stop(); } catch(e) {}
+                    // onend handler will restart it
+                }
+            }
+
+            // Update secondary window.recognition (wake-word / navigation engine)
+            if (window.recognition) {
+                window.recognition.lang = langCode;
+                try { window.recognition.stop(); } catch(e) {}
+                // onend handler will restart it
+            }
+        }
+
         function initHeyAJRecognition() {
             const SpeechRecog = window.webkitSpeechRecognition || window.SpeechRecognition;
             if (!SpeechRecog) {
@@ -2486,10 +2512,15 @@
                 return;
             }
 
+            // Use the selected language code, or the browser's own locale as the default
+            const defaultLang = (supportedLanguages[selectedLanguageKey] || {}).code
+                                || window.navigator.language
+                                || 'en-US';
+
             recognitionEngine = new SpeechRecog();
             recognitionEngine.continuous = true;
             recognitionEngine.interimResults = true;
-            recognitionEngine.lang = "en-US";
+            recognitionEngine.lang = defaultLang;
 
             recognitionEngine.onstart = () => {
                 isRecognitionRunning = true;
@@ -2499,14 +2530,19 @@
             };
 
             recognitionEngine.onresult = (e) => {
-                let result = e.results[e.results.length - 1][0].transcript.toLowerCase().trim();
-                console.log("[AJ Heard] Result:", result);
+                // Do NOT lowercase the raw transcript — native scripts must be preserved exactly
+                const rawResult = e.results[e.results.length - 1][0].transcript.trim();
+                const lowerResult = rawResult.toLowerCase();
+                console.log("[AJ Heard] Result:", rawResult);
 
-                if (result.includes("jarvis") || result.includes("echo") || result.includes("aj") || result.includes("lick")) {
+                // Vision scan wake-word check (English-only keywords, case-insensitive)
+                if (lowerResult.includes("jarvis") || lowerResult.includes("echo") ||
+                    lowerResult.includes("aj") || lowerResult.includes("lick")) {
                     console.log("🔥 Trigger word detected! Activating Vision Scan...");
-                    triggerVisionScan(); 
+                    triggerVisionScan();
                 }
 
+                // Accumulate only final (confirmed) segments so native script is whole
                 let finalTranscript = '';
                 for (let i = e.resultIndex; i < e.results.length; ++i) {
                     if (e.results[i].isFinal) {
@@ -2514,15 +2550,18 @@
                     }
                 }
 
+                // Interim: check for 'vision' keyword immediately
                 for (let i = e.resultIndex; i < e.results.length; ++i) {
                     const interim = e.results[i][0].transcript.toLowerCase();
                     if (interim.includes("vision")) {
                         processVoiceCommand(e.results[i][0].transcript);
                     }
                 }
-                if (finalTranscript) {
-                    transcriptDisplay.textContent = finalTranscript;
-                    processVoiceCommand(finalTranscript);
+
+                if (finalTranscript.trim()) {
+                    transcriptDisplay.textContent = finalTranscript.trim();
+                    // Pass the full, unmodified native-script transcript to command processor
+                    processVoiceCommand(finalTranscript.trim());
                 }
             };
 
@@ -2547,23 +2586,36 @@
         }
 
         async function sendChatQuery(queryText) {
+            if (!queryText || !queryText.trim()) return;
             console.log("[AJ Chat Query]:", queryText);
             if (narratorOutput) narratorOutput.textContent = "Thinking...";
 
             try {
-                const curLangName = supportedLanguages[selectedLanguageKey] ? supportedLanguages[selectedLanguageKey].name : "English";
+                // Detect the script of the query to let Gemini know the input language.
+                // If the query is in a native script (e.g. Kannada, Telugu, Hindi),
+                // send it raw. Gemini will auto-detect and respond in the same language.
+                const detectedQueryLang = detectScriptLanguage(queryText);
+                const selectedLangName = supportedLanguages[selectedLanguageKey]
+                    ? supportedLanguages[selectedLanguageKey].name
+                    : 'English';
+
+                // Only pass a language hint when the text is Latin/ambiguous;
+                // for native scripts, Gemini's auto-detect is more accurate.
+                const languageHint = detectedQueryLang ? null : selectedLangName;
+
+                const payload = { message: queryText };
+                if (languageHint) payload.language = languageHint;
+
                 const response = await fetch('/chat', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        message: queryText,
-                        language: curLangName
-                    })
+                    body: JSON.stringify(payload)
                 });
                 const data = await response.json();
                 if (data && data.response) {
-                    if (narratorOutput) narratorOutput.textContent = data.response;
-                    speakText(data.response, 1);
+                    const respText = data.response;
+                    if (narratorOutput) narratorOutput.textContent = respText;
+                    speakText(respText, 1);
                 } else {
                     const fallback = "I could not retrieve an answer at the moment.";
                     if (narratorOutput) narratorOutput.textContent = fallback;
@@ -3278,47 +3330,57 @@
             }
         }
 
-        function initHeyAJRecognition() {
+        function initSecondaryRecognition() {
             const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-            if (SpeechRecognition) {
-                window.recognition = new SpeechRecognition();
-                window.recognition.continuous = true;
-                window.recognition.interimResults = false;
-                window.recognition.lang = 'en-US';
-
-                // Start listening immediately on page load
-                window.recognition.start();
-
-                window.recognition.onresult = function(event) {
-                    const resultIndex = event.resultIndex;
-                    const transcript = event.results[resultIndex][0].transcript.trim().toLowerCase();
-                    console.log("Speech detected:", transcript);
-
-                    let navDest = null;
-                    const navKeywords = ["navigate to", "route to", "go to", "directions to"];
-                    for (const kw of navKeywords) {
-                        if (transcript.includes(kw)) {
-                            navDest = transcript.split(kw)[1].trim();
-                            break;
-                        }
-                    }
-
-                    if (navDest) {
-                        triggerNavigationRoute(navDest);
-                    } else if (transcript.includes("hey aj") || transcript.includes("aj") || transcript.includes("hey likhi") || transcript.includes("likhi")) {
-                        handleWakeWord(transcript);
-                    }
-                };
-
-                // Automatically restart if it disconnects/stops
-                window.recognition.onend = function() {
-                    if (!window.speechSynthesis.speaking) {
-                        try { window.recognition.start(); } catch(e) {}
-                    }
-                };
-            } else {
+            if (!SpeechRecognition) {
                 console.error("Web Speech API is not supported in this browser.");
+                return;
             }
+
+            // Use the selected language or browser locale as the default
+            const defaultLang = (supportedLanguages[selectedLanguageKey] || {}).code
+                                || window.navigator.language
+                                || 'en-US';
+
+            window.recognition = new SpeechRecognition();
+            window.recognition.continuous = true;
+            window.recognition.interimResults = false;
+            window.recognition.lang = defaultLang;
+
+            // Start listening immediately on page load
+            try { window.recognition.start(); } catch(e) {}
+
+            window.recognition.onresult = function(event) {
+                const resultIndex = event.resultIndex;
+                // Preserve original case so native scripts are not corrupted
+                const rawTranscript = event.results[resultIndex][0].transcript.trim();
+                const transcript = rawTranscript.toLowerCase();
+                console.log("[SecondaryRec] Speech detected:", rawTranscript);
+
+                let navDest = null;
+                const navKeywords = ["navigate to", "route to", "go to", "directions to", "take me to"];
+                for (const kw of navKeywords) {
+                    if (transcript.includes(kw)) {
+                        navDest = transcript.split(kw)[1].trim();
+                        break;
+                    }
+                }
+
+                if (navDest) {
+                    triggerNavigationRoute(navDest);
+                } else if (transcript.includes("hey aj") || transcript.includes("aj") || transcript.includes("hey likhi") || transcript.includes("likhi")) {
+                    handleWakeWord(transcript);
+                }
+                // NOTE: All other transcripts (including native-script queries)
+                // are handled by the primary recognitionEngine via processVoiceCommand.
+            };
+
+            // Automatically restart if it disconnects/stops
+            window.recognition.onend = function() {
+                if (!window.speechSynthesis.speaking) {
+                    try { window.recognition.start(); } catch(e) {}
+                }
+            };
         }
 
         window.addEventListener('DOMContentLoaded', () => {

@@ -280,5 +280,72 @@ STRICT RULES FOR YOUR OUTPUT:
             }
         }), 200
 
+# Conversational AI endpoint for general Q&A and multilingual assistant queries
+@app.route('/chat', methods=['POST'])
+def chat():
+    try:
+        data = request.json or {}
+        user_message = data.get('message', '').strip()
+        language = data.get('language', 'English')
+
+        if not user_message:
+            return jsonify({"response": "I didn't catch that. Could you please repeat?"}), 400
+
+        api_key = os.getenv('GEMINI_API_KEY')
+        if not api_key:
+            return jsonify({"response": "Gemini API key is missing."}), 500
+
+        system_prompt = f"""You are AJ, an ultra-fast, intelligent autonomous spatial mapping and voice navigation assistant for visually impaired users.
+Your response will be spoken out loud via Text-to-Speech directly to the user.
+STRICT RULES FOR YOUR RESPONSE:
+1. Be extremely concise, clear, and direct (1 to 3 short sentences max).
+2. Never return markdown formatting like bold (**), italics (*), bullet points, or code blocks. Output plain spoken text only.
+3. Respect user language requests dynamically! If the user asks for or in Kannada, Hindi, Tamil, Spanish, French, etc., you MUST answer in that requested language using its natural script (e.g., Kannada script for Kannada responses).
+4. Current default preferred language context: {language}.
+"""
+
+        payload = {
+            "systemInstruction": {
+                "parts": [{"text": system_prompt}]
+            },
+            "contents": [
+                {
+                    "parts": [{"text": user_message}]
+                }
+            ],
+            "generationConfig": {
+                "temperature": 0.7,
+                "maxOutputTokens": 300
+            }
+        }
+
+        headers = {"Content-Type": "application/json"}
+        models_to_try = ["gemini-3.5-flash", "gemini-2.5-flash"]
+        reply_text = None
+
+        for model_name in models_to_try:
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={api_key}"
+            try:
+                res = requests.post(url, json=payload, headers=headers, timeout=10)
+                if res.status_code == 200:
+                    g_data = res.json()
+                    reply_text = g_data['candidates'][0]['content']['parts'][0]['text']
+                    break
+                else:
+                    print(f"Chat API error {res.status_code}: {res.text}")
+            except Exception as err:
+                print(f"[Chat] Model {model_name} failed: {err}")
+
+        if not reply_text:
+            reply_text = "I am having trouble connecting to my Gemini core right now."
+
+        # Clean markdown characters
+        cleaned_reply = re.sub(r'[*#_`]+', '', reply_text).strip()
+        return jsonify({"response": cleaned_reply})
+    except Exception as e:
+        print(f"[Chat Endpoint Exception]: {e}")
+        return jsonify({"response": "Sorry, an unexpected error occurred."}), 500
+
 if __name__ == '__main__':
     app.run(debug=True, port=5000, host="0.0.0.0")
+

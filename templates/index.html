@@ -2160,6 +2160,25 @@
             }
         }
 
+        function detectScriptLanguage(text) {
+            if (!text) return null;
+            // Kannada script
+            if (/[\u0C80-\u0CFF]/.test(text)) return 'kn-IN';
+            // Hindi / Devanagari script
+            if (/[\u0900-\u097F]/.test(text)) return 'hi-IN';
+            // Tamil script
+            if (/[\u0B80-\u0BFF]/.test(text)) return 'ta-IN';
+            // Telugu script
+            if (/[\u0C00-\u0C7F]/.test(text)) return 'te-IN';
+            // Malayalam script
+            if (/[\u0D00-\u0D7F]/.test(text)) return 'ml-IN';
+            // Spanish
+            if (/[ñáéíóú¿¡]/i.test(text)) return 'es-ES';
+            // French
+            if (/[éèêëàâùûç]/i.test(text)) return 'fr-FR';
+            return null;
+        }
+
         // Voice Synthesis Engine - priority-based non-blocking speech manager
         function speakText(text, priority = 0, rate = null, pitch = null, volume = null) {
             // IRONCLAD FILTER: Block repetitive offline/simulation fallback voice loops
@@ -2198,11 +2217,17 @@
             if (volume !== null) utterance.volume = volume;
 
             const voices = speechSynth.getVoices();
-            const targetLang = supportedLanguages[selectedLanguageKey].code;
+            const detectedLang = detectScriptLanguage(text);
+            const targetLang = detectedLang || (supportedLanguages[selectedLanguageKey] ? supportedLanguages[selectedLanguageKey].code : 'en-US');
             
+            utterance.lang = targetLang;
+
             let chosenVoice = null;
+            const langPrefix = targetLang.substring(0, 2).toLowerCase();
+
             for (let i = 0; i < voices.length; i++) {
-                if (voices[i].lang.startsWith(targetLang) || voices[i].lang.replace('_', '-').startsWith(targetLang.substring(0, 2))) {
+                const vLang = voices[i].lang.toLowerCase().replace('_', '-');
+                if (vLang.startsWith(targetLang.toLowerCase()) || vLang.startsWith(langPrefix)) {
                     if (voices[i].name.toLowerCase().includes('google') || voices[i].name.toLowerCase().includes('natural') || voices[i].name.toLowerCase().includes('female')) {
                         chosenVoice = voices[i];
                         break;
@@ -2211,7 +2236,8 @@
             }
             if (!chosenVoice) {
                 for (let i = 0; i < voices.length; i++) {
-                    if (voices[i].lang.startsWith(targetLang) || voices[i].lang.replace('_', '-').startsWith(targetLang.substring(0, 2))) {
+                    const vLang = voices[i].lang.toLowerCase().replace('_', '-');
+                    if (vLang.startsWith(targetLang.toLowerCase()) || vLang.startsWith(langPrefix)) {
                         chosenVoice = voices[i];
                         break;
                     }
@@ -2255,24 +2281,20 @@
             if (!isDangerActive) {
                 isDangerActive = true;
                 
-                // Cancel current speech immediately
                 if (speechSynth.speaking) {
                     speechSynth.cancel();
                 }
                 speakInProgress = false;
                 currentSpeechPriority = 0;
                 
-                // Clear any old interval
                 if (dangerInterval) {
                     clearInterval(dangerInterval);
                 }
                 
-                // Trigger immediately, then every 2 seconds
                 triggerDangerAlert();
                 dangerInterval = setInterval(triggerDangerAlert, 2000);
             }
 
-            // Draw smart danger on radar canvas
             let dangerDistance = 2; // close
             if (danger.distance === 'medium') dangerDistance = 15;
             else if (danger.distance === 'far') dangerDistance = 40;
@@ -2286,7 +2308,7 @@
                 label: danger.type || "vehicle",
                 addedTime: Date.now()
             }];
-            radarHazards = activeRadarTargets; // keep legacy alias in sync
+            radarHazards = activeRadarTargets;
         }
 
         function handleDangerCleared() {
@@ -2297,14 +2319,12 @@
             isDangerActive = false;
             dangerDetails = null;
             
-            // Cancel current warning speech
             if (speechSynth.speaking) {
                 speechSynth.cancel();
             }
             speakInProgress = false;
             currentSpeechPriority = 0;
             
-            // Announce safe states at high priority (2) to ensure immediate playback
             const safeText = getDangerTranslation("safe_now") + " " + getDangerTranslation("path_clear");
             speakText(safeText, 2);
         }
@@ -2318,15 +2338,13 @@
                 return;
             }
 
-            const direction = dangerDetails.direction; // "left" | "right" | "front" | "behind"
-            const distance = dangerDetails.distance; // "far" | "medium" | "close"
+            const direction = dangerDetails.direction;
+            const distance = dangerDetails.distance;
 
-            // Compute panning (left = -1, right = 1, front/behind = 0)
             let pan = 0.0;
             if (direction === "left") pan = -1.0;
             else if (direction === "right") pan = 1.0;
 
-            // Audio & speech settings based on distance
             let freq = 1000;
             let duration = 0.35;
             let volume = 0.7;
@@ -2342,29 +2360,24 @@
             } else if (distance === "close") {
                 freq = 1200;
                 duration = 0.4;
-                volume = 1.0; // Max volume
+                volume = 1.0;
                 rate = 1.45;
                 pitch = 1.2;
             }
 
-            // Play the alert beep
             playSpatialBeep(freq, pan, duration, volume);
 
-            // Construct localized evasion message
             let translationKey = "danger_from_front";
             if (direction === "left") translationKey = "danger_from_left";
             else if (direction === "right") translationKey = "danger_from_right";
             else if (direction === "behind") translationKey = "danger_from_behind";
 
             const warningText = getTranslation(translationKey);
-            
-            // Speak warning immediately with priority 2
             speakText(warningText, 2, rate, pitch, volume);
         }
 
         let scanTimeout = null;
 
-        // Smart-throttled automatic scanning loop running strictly once every 2.5 seconds (2500ms)
         function triggerFastScanCycle() {
             if (scanTimeout) {
                 clearTimeout(scanTimeout);
@@ -2374,34 +2387,27 @@
             if (!isAutoscanActive) {
                 badgeScan.className = 'badge';
                 badgeScan.querySelector('span').textContent = "Scan Offline";
-                isScanLoopRunning = false; // Reset the loop running flag!
+                isScanLoopRunning = false;
                 return;
             }
             
             if (isAnalyzing) {
                 console.log("[Scan Throttled] Automatic scan skipped because a previous analysis is still pending.");
-                // Retry in 9 seconds to maintain the steady interval
                 scanTimeout = setTimeout(triggerFastScanCycle, 9000);
                 return;
             }
 
             let imgData = snapFrame();
             if (!imgData) {
-                console.log("[Simulation Fallback] No webcam stream available. Using mock frame.");
-                // Minimal 1x1 transparent base64 GIF to trigger the backend simulation response
                 imgData = "data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==";
             }
             
             runAIAnalysis(imgData);
-            // Schedule next automatic scan 9 seconds from now
             scanTimeout = setTimeout(triggerFastScanCycle, 9000);
         }
 
-        // Force a manual scan immediately (voice-activated manual trigger)
         function forceManualScan() {
             console.log("[Manual Trigger] Voice command forced immediate scan.");
-            
-            // Cancel any pending automatic scan timeout
             if (scanTimeout) {
                 clearTimeout(scanTimeout);
                 scanTimeout = null;
@@ -2418,13 +2424,11 @@
                 }
             }
 
-            // Reset the 9-second automatic timer if autoscan is active
             if (isAutoscanActive) {
                 scanTimeout = setTimeout(triggerFastScanCycle, 9000);
             }
         }
 
-        // Voice Onboarding Sequence
         function triggerVoiceOnboarding() {
             onboardingStep = "greeting";
             speakText(getTranslation("welcome"));
@@ -2439,7 +2443,6 @@
 
         function triggerVisionScan() {
             if (isAutoscanActive) {
-                // If already active, the manual trigger forces an immediate scan and resets the timer
                 forceManualScan();
                 return;
             }
@@ -2454,7 +2457,6 @@
             triggerFastScanCycle();
         }
 
-        // AJ AI Speech Recognition - standard restart flow for 100% wake-word accuracy
         function initHeyAJRecognition() {
             const SpeechRecog = window.webkitSpeechRecognition || window.SpeechRecognition;
             if (!SpeechRecog) {
@@ -2478,23 +2480,18 @@
                 let result = e.results[e.results.length - 1][0].transcript.toLowerCase().trim();
                 console.log("[AJ Heard] Result:", result);
 
-                // 🚀 NEW TRIGGER LOGIC: Checks for your new name and common misheard variants
                 if (result.includes("jarvis") || result.includes("echo") || result.includes("aj") || result.includes("lick")) {
                     console.log("🔥 Trigger word detected! Activating Vision Scan...");
-                    
-                    // Call your direct image capture and streaming function right here
                     triggerVisionScan(); 
                 }
 
                 let finalTranscript = '';
                 for (let i = e.resultIndex; i < e.results.length; ++i) {
-                    console.log(`[AJ Heard] Alternatives: ['${e.results[i][0].transcript.trim()}']`);
                     if (e.results[i].isFinal) {
                         finalTranscript += e.results[i][0].transcript;
                     }
                 }
 
-                // Process interim too for faster response
                 for (let i = e.resultIndex; i < e.results.length; ++i) {
                     const interim = e.results[i][0].transcript.toLowerCase();
                     if (interim.includes("vision")) {
@@ -2516,7 +2513,6 @@
 
             recognitionEngine.onerror = (e) => {
                 if (e.error === "no-speech") {
-                    console.log("Engine idling...");
                     return;
                 }
                 isRecognitionRunning = false;
@@ -2528,10 +2524,42 @@
             } catch(e) {}
         }
 
+        async function sendChatQuery(queryText) {
+            console.log("[AJ Chat Query]:", queryText);
+            if (narratorOutput) narratorOutput.textContent = "Thinking...";
+
+            try {
+                const curLangName = supportedLanguages[selectedLanguageKey] ? supportedLanguages[selectedLanguageKey].name : "English";
+                const response = await fetch('/chat', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        message: queryText,
+                        language: curLangName
+                    })
+                });
+                const data = await response.json();
+                if (data && data.response) {
+                    if (narratorOutput) narratorOutput.textContent = data.response;
+                    speakText(data.response, 1);
+                } else {
+                    const fallback = "I could not retrieve an answer at the moment.";
+                    if (narratorOutput) narratorOutput.textContent = fallback;
+                    speakText(fallback, 1);
+                }
+            } catch (err) {
+                console.error("[AJ Chat Error]:", err);
+                const errSpeech = "Sorry, I am having trouble connecting to my chat service.";
+                if (narratorOutput) narratorOutput.textContent = errSpeech;
+                speakText(errSpeech, 1);
+            }
+        }
+
         function processVoiceCommand(text) {
+            if (!text || !text.trim()) return;
             const normalizedText = text.toLowerCase().trim();
 
-            if (normalizedText.includes("vision stop")) {
+            if (normalizedText.includes("vision stop") || normalizedText === "stop") {
                 isAutoscanActive = false;
                 if (scanTimeout) {
                     clearTimeout(scanTimeout);
@@ -2544,12 +2572,7 @@
                 return;
             }
             
-            if (normalizedText.includes("vision scan") || 
-                normalizedText.includes("camp") || 
-                normalizedText.includes("can") || 
-                normalizedText.includes("span") || 
-                normalizedText.includes("scam") || 
-                normalizedText.includes("cam")) {
+            if (normalizedText === "vision scan" || normalizedText === "scan" || normalizedText.includes("start scan")) {
                 if (isAutoscanActive) {
                     forceManualScan();
                 } else {
@@ -2569,20 +2592,11 @@
                 return;
             }
             
-            if (normalizedText.includes("navigate to") || 
-                normalizedText.includes("man") || 
-                normalizedText.includes("ban") || 
-                normalizedText.includes("pan")) {
+            if (normalizedText.includes("navigate to")) {
                 let destination = "your destination";
-                const navTriggers = ["navigate to", "man", "ban", "pan"];
-                for (const trig of navTriggers) {
-                    if (normalizedText.includes(trig)) {
-                        const splitText = normalizedText.split(trig)[1];
-                        if (splitText && splitText.trim() !== "") {
-                            destination = splitText.trim();
-                            break;
-                        }
-                    }
+                const splitText = normalizedText.split("navigate to")[1];
+                if (splitText && splitText.trim() !== "") {
+                    destination = splitText.trim();
                 }
                 badgeGpsDest.className = 'badge success-badge';
                 badgeGpsDest.querySelector('span').textContent = destination.substring(0, 15);
@@ -2590,11 +2604,8 @@
                 return;
             }
 
-            // Simple activate check (if vision is heard but not a specific command)
-            if (normalizedText.includes("vision")) {
-                playSpatialBeep(900, 0, 0.2);
-                return;
-            }
+            // Remove rigid command restrictions: ALL conversational queries go to Gemini /chat!
+            sendChatQuery(text);
         }
 
         // --- Leaflet.js Map Integration ---

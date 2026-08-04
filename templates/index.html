@@ -20,7 +20,7 @@
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <style>
         /* Map fills container and dark-mode filter applied to all tile layers */
-        #google-map { width: 100%; height: 100%; border-radius: 12px; }
+        #google-map { width: 100%; height: 100%; max-width: 100%; border-radius: 12px; }
         #google-map .leaflet-tile-pane {
             filter: invert(100%) hue-rotate(180deg) brightness(95%) contrast(90%);
         }
@@ -350,7 +350,8 @@
 
         /* Circular Spatial Radar */
         .radar-container {
-            width: 130px;
+            width: 100%;
+            max-width: 130px;
             height: 130px;
             border: 1px solid rgba(0, 242, 254, 0.25);
             border-radius: 50%;
@@ -950,7 +951,7 @@
                 </h1>
                 <p class="subtitle" id="site-description">Autonomous Spatial Mapping & Multilingual AI Navigation</p>
             </div>
-            <button class="cta-btn primary-cta" style="padding:0.6rem 1.4rem; font-size:0.95rem;" onclick="launchLiveAssistantWorkspace()">
+            <button class="cta-btn primary-cta" style="padding:0.6rem 1.4rem; font-size:0.95rem;" onclick="launchLiveAssistantWorkspace()" ontouchstart="launchLiveAssistantWorkspace()">
                 <i class="fa-solid fa-bolt"></i> Launch Assistant
             </button>
         </div>
@@ -964,7 +965,7 @@
             <p class="hero-tagline">Autonomous Spatial Mapping & Multilingual AI Navigation for the Visually Impaired</p>
             
             <div class="hero-cta-group">
-                <button class="cta-btn primary-cta" id="launch-assistant-btn" onclick="launchLiveAssistantWorkspace()">
+                <button class="cta-btn primary-cta" id="launch-assistant-btn" onclick="launchLiveAssistantWorkspace()" ontouchstart="launchLiveAssistantWorkspace()">
                     <i class="fa-solid fa-bolt"></i> Launch Live Assistant
                 </button>
                 <button class="cta-btn secondary-cta" onclick="document.getElementById('features-section').scrollIntoView({behavior:'smooth'})">
@@ -990,7 +991,7 @@
 
             <!-- Card 1: Spatial Radar -->
             <div class="feature-card" role="button" tabindex="0" aria-label="Launch Spatial Radar" id="pillar-radar"
-                onclick="pillarLaunchRadar()"
+                onclick="pillarLaunchRadar()" ontouchstart="pillarLaunchRadar()"
                 onkeydown="if(event.key==='Enter'||event.key===' ')pillarLaunchRadar()">
                 <div class="feature-icon"><i class="fa-solid fa-radar"></i></div>
                 <h3>Spatial Radar</h3>
@@ -1000,7 +1001,7 @@
 
             <!-- Card 2: Voice-First GPS -->
             <div class="feature-card" role="button" tabindex="0" aria-label="Launch Voice GPS" id="pillar-gps"
-                onclick="pillarLaunchGPS()"
+                onclick="pillarLaunchGPS()" ontouchstart="pillarLaunchGPS()"
                 onkeydown="if(event.key==='Enter'||event.key===' ')pillarLaunchGPS()">
                 <div class="feature-icon"><i class="fa-solid fa-route"></i></div>
                 <h3>Voice-First GPS</h3>
@@ -1010,7 +1011,7 @@
 
             <!-- Card 3: Multilingual AI -->
             <div class="feature-card" role="button" tabindex="0" aria-label="Launch Multilingual AI" id="pillar-multilingual"
-                onclick="pillarLaunchMultilingual()"
+                onclick="pillarLaunchMultilingual()" ontouchstart="pillarLaunchMultilingual()"
                 onkeydown="if(event.key==='Enter'||event.key===' ')pillarLaunchMultilingual()">
                 <div class="feature-icon"><i class="fa-solid fa-language"></i></div>
                 <h3>Multilingual AI</h3>
@@ -1020,7 +1021,7 @@
 
             <!-- Card 4: Offline Safety Guard -->
             <div class="feature-card" role="button" tabindex="0" aria-label="Launch Safety Guard" id="pillar-safety"
-                onclick="pillarLaunchSafety()"
+                onclick="pillarLaunchSafety()" ontouchstart="pillarLaunchSafety()"
                 onkeydown="if(event.key==='Enter'||event.key===' ')pillarLaunchSafety()">
                 <div class="feature-icon"><i class="fa-solid fa-shield-halved"></i></div>
                 <h3>Offline Safety Guard</h3>
@@ -1049,7 +1050,7 @@
                     <p>LOW LIGHT DETECTED</p>
                 </div>
 
-                <video id="webcam" autoplay playsinline muted></video>
+                <video id="webcam" autoplay playsinline webkit-playsinline muted></video>
                 <img id="image-preview" alt="Captured snapshot preview">
 
                 <div class="viewport-placeholder" id="viewport-placeholder">
@@ -1930,12 +1931,22 @@
             setTimeout(() => el.remove(), 4000);
         }
 
+        // Mobile-safe camera helper: tries front camera, falls back to any camera
+        async function getUserMediaWithFallback() {
+            try {
+                return await navigator.mediaDevices.getUserMedia({
+                    video: { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 720 } }
+                });
+            } catch (e) {
+                console.warn('[Camera] facingMode:user failed, falling back to { video: true }:', e);
+                return await navigator.mediaDevices.getUserMedia({ video: true });
+            }
+        }
+
         // Camera Management
         async function startCamera() {
             try {
-                videoStream = await navigator.mediaDevices.getUserMedia({
-                    video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } }
-                });
+                videoStream = await getUserMediaWithFallback();
                 webcam.srcObject = videoStream;
                 webcam.style.display = 'block';
                 imagePreview.style.display = 'none';
@@ -3933,6 +3944,8 @@
         /* ── Pillar Card Click Handlers ─────────────────────────────────── */
 
         function pillarLaunchRadar() {
+    ensureAudioContext();
+    if (window.speechSynthesis && window.speechSynthesis.paused) { try { window.speechSynthesis.resume(); } catch(e) {} }
             // 1. Scroll to live dashboard
             const mainWorkspace = document.getElementById('main-content');
             if (mainWorkspace) mainWorkspace.scrollIntoView({ behavior: 'smooth' });
@@ -3951,6 +3964,8 @@
         }
 
         function pillarLaunchGPS() {
+    ensureAudioContext();
+    if (window.speechSynthesis && window.speechSynthesis.paused) { try { window.speechSynthesis.resume(); } catch(e) {} }
             // 1. Scroll to the map section
             const mapEl = document.getElementById('map-canvas') || document.getElementById('google-map');
             if (mapEl) mapEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -3966,6 +3981,8 @@
         }
 
         function pillarLaunchMultilingual() {
+    ensureAudioContext();
+    if (window.speechSynthesis && window.speechSynthesis.paused) { try { window.speechSynthesis.resume(); } catch(e) {} }
             // 1. Scroll to AJ Assistant column
             const ajCol = document.getElementById('col2-title');
             if (ajCol) ajCol.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -3994,6 +4011,8 @@
         }
 
         function pillarLaunchSafety() {
+    ensureAudioContext();
+    if (window.speechSynthesis && window.speechSynthesis.paused) { try { window.speechSynthesis.resume(); } catch(e) {} }
             // 1. Scroll to viewport
             const viewport = document.getElementById('viewport-container');
             if (viewport) viewport.scrollIntoView({ behavior: 'smooth', block: 'center' });

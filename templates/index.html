@@ -2126,10 +2126,25 @@
                         voiceAlert = `Watch your step, small object on the floor ${dirCue} 2 steps ahead.`;
                     } else if (obstacle.position === 'behind') {
                         voiceAlert = `Warning, ${obstacle.label || "obstacle"} detected behind you.`;
+                    } else {
+                        // Generic obstacle fallback
+                        let posDesc = "ahead";
+                        if (obstacle.position.includes('left')) posDesc = "on your left";
+                        if (obstacle.position.includes('right')) posDesc = "on your right";
+                        voiceAlert = `${obstacle.label} ${posDesc}.`;
+                    }
+
+                    // Do not speak for simulated targets
+                    if (obstacle.label && obstacle.label.toLowerCase().includes('simulated')) {
+                        voiceAlert = "";
                     }
 
                     if (voiceAlert) {
-                        speakText(voiceAlert, 1);
+                        const nowTime = Date.now();
+                        if (!window.lastObstacleSpeechTime || (nowTime - window.lastObstacleSpeechTime > 3000)) {
+                            speakText(voiceAlert, 1);
+                            window.lastObstacleSpeechTime = nowTime;
+                        }
                     }
 
                     setTimeout(() => {

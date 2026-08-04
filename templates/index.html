@@ -2953,30 +2953,6 @@
             }
         }
 
-        async function triggerNavigationRoute(dest) {
-            const calcAnnounce = `Calculating route to ${dest}.`;
-            if (narratorOutput) narratorOutput.textContent = calcAnnounce;
-            speakText(calcAnnounce, 1);
-
-            let origin = null;
-            if (window.userLat && window.userLon) {
-                origin = [window.userLat, window.userLon];
-            } else if (navigator.geolocation) {
-                try {
-                    const pos = await new Promise((resolve, reject) => {
-                        navigator.geolocation.getCurrentPosition(resolve, reject, { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 });
-                    });
-                    origin = [pos.coords.latitude, pos.coords.longitude];
-                } catch(e) {
-                    console.warn('Geolocation failed during routing.', e);
-                }
-            }
-
-            if (!origin) {
-                speakText('Sorry, I could not determine your current location. Please ensure GPS is enabled.', 1);
-                return;
-            }
-
         async function geocodeLocationQuery(query, origin) {
             const cleanQuery = query.trim();
             const lowerQuery = cleanQuery.toLowerCase();

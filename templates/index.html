@@ -1822,18 +1822,23 @@
 
                 if (res.ok) {
                     const data = await res.json();
-                    if (data.error) {
+                    // Route both success and error-status payloads through processAIResult
+                    // so radar always clears stale blips and isAnalyzing is reset in finally.
+                    // Only skip if the backend explicitly returned a hard data.error string.
+                    if (data && data.error && !data.obstacles && !data.detected_objects) {
+                        // Hard error with no usable payload — show scanning state
                         narratorOutput.textContent = getTranslation("scanning");
                     } else {
-                        processAIResult(data);
+                        processAIResult(data || {});
                     }
                 } else {
-                    throw new Error("HTTP error " + res.status);
+                    console.warn("[Analyze] HTTP error " + res.status + " — clearing radar targets.");
+                    processAIResult({ status: 'error', obstacles: [], detected_objects: [] });
                 }
             } catch (e) {
                 console.error("AI Analysis error:", e);
-                // ALWAYS display localized "Scanning..." strictly per requirements, no fallback text
-                narratorOutput.textContent = getTranslation("scanning");
+                // Clear radar on network failure so stale blips don't persist
+                processAIResult({ status: 'error', obstacles: [], detected_objects: [] });
             } finally {
                 scanner.style.display = 'none';
                 isAnalyzing = false;
@@ -2032,15 +2037,26 @@
         // Process Gemini API Result & Trigger Spatial Sounds
         function processAIResult(payload) {
             try {
+                // Guard: treat missing/null payload as an empty-frame result
+                if (!payload || typeof payload !== 'object') {
+                    payload = { obstacles: [], detected_objects: [] };
+                }
+
+                // Clear stale radar blips on every frame — even error/empty frames
+                activeRadarTargets = [];
+                radarHazards = activeRadarTargets; // keep legacy alias in sync
+
+                // Exit 'Offline safety mode' UI state whenever /analyze completes
                 badgeScan.className = 'badge success-badge';
                 badgeScan.querySelector('span').textContent = "Scanning Active";
                 if (blipsHolder) {
                     blipsHolder.innerHTML = '';
                 }
 
-                // Clear and rebuild the persistent targets array on each successful /analyze response
-                activeRadarTargets = [];
-                radarHazards = activeRadarTargets; // keep legacy alias in sync
+                // If the backend returned a status:error with no real data, stop here
+                if (payload.status === 'error' && !payload.description) {
+                    return;
+                }
 
                 // Handle Smart Danger Alerts
                 if (payload.smart_danger && payload.smart_danger.detected) {
@@ -2078,10 +2094,14 @@
                     speakText(payload.description, 0); // Normal scan priority
                 }
 
-                // Spatial Obstacles & Object mapping
-                const objectList = payload.obstacles || payload.detected_objects || [];
-                if (objectList && objectList.length > 0) {
+                // Spatial Obstacles & Object mapping — safe-parse both arrays
+                const rawObstacles = Array.isArray(payload.obstacles) ? payload.obstacles : [];
+                const rawObjects  = Array.isArray(payload.detected_objects) ? payload.detected_objects : [];
+                const objectList  = rawObstacles.length > 0 ? rawObstacles : rawObjects;
+
+                if (objectList.length > 0) {
                     objectList.forEach((obstacle, i) => {
+                        if (!obstacle || typeof obstacle !== 'object') return;
                         let panVal = 0.0;
 
                         if (obstacle.position === 'left' || obstacle.position === 'aside_left') {
@@ -2091,11 +2111,11 @@
                         }
 
                         let coords;
-                        if (obstacle.bbox) {
-                            const bx = obstacle.bbox.x !== undefined ? obstacle.bbox.x : (obstacle.bbox[0] || 0.5);
-                            const by = obstacle.bbox.y !== undefined ? obstacle.bbox.y : (obstacle.bbox[1] || 0.5);
-                            const bw = obstacle.bbox.width !== undefined ? obstacle.bbox.width : (obstacle.bbox[2] || 0.2);
-                            const bh = obstacle.bbox.height !== undefined ? obstacle.bbox.height : (obstacle.bbox[3] || 0.2);
+                        if (obstacle.bbox && typeof obstacle.bbox === 'object') {
+                            const bx = obstacle.bbox.x !== undefined ? obstacle.bbox.x : (Array.isArray(obstacle.bbox) ? (obstacle.bbox[0] || 0.5) : 0.5);
+                            const by = obstacle.bbox.y !== undefined ? obstacle.bbox.y : (Array.isArray(obstacle.bbox) ? (obstacle.bbox[1] || 0.5) : 0.5);
+                            const bw = obstacle.bbox.width !== undefined ? obstacle.bbox.width : (Array.isArray(obstacle.bbox) ? (obstacle.bbox[2] || 0.2) : 0.2);
+                            const bh = obstacle.bbox.height !== undefined ? obstacle.bbox.height : (Array.isArray(obstacle.bbox) ? (obstacle.bbox[3] || 0.2) : 0.2);
                             
                             const radius = 130 / 2;
                             const angle = -Math.PI + (bx * Math.PI);
@@ -2224,7 +2244,7 @@
 
         // Voice Synthesis Engine - priority-based non-blocking speech manager
         let lastSpokenText = "";
-        function speakText(text, priority = 0, rate = null, pitch = null, volume = null) {
+        function speakText(text, priority = 0, rate = null, pitch = null, volume = null, forcedLang = null) {
             if (!text) return;
 
             // Silence duplicate alerts or safety mode loops cleanly without console noise
@@ -2272,7 +2292,7 @@
             const detectedLang = detectScriptLanguage(text);
             const targetLang = detectedLang || (supportedLanguages[selectedLanguageKey] ? supportedLanguages[selectedLanguageKey].code : 'en-US');
             
-            utterance.lang = targetLang;
+            utterance.lang = forcedLang || targetLang;
 
             // Extract 2-letter ISO prefix (e.g. 'fr', 'es', 'de', 'ja', 'ar', 'kn', 'hi', 'te', 'zh', etc.)
             const isoPrefix = targetLang.substring(0, 2).toLowerCase();
@@ -2626,15 +2646,12 @@
 
             try {
                 // Detect the script of the query to let Gemini know the input language.
-                // If the query is in a native script (e.g. Kannada, Telugu, Hindi),
-                // send it raw. Gemini will auto-detect and respond in the same language.
                 const detectedQueryLang = detectScriptLanguage(queryText);
                 const selectedLangName = supportedLanguages[selectedLanguageKey]
                     ? supportedLanguages[selectedLanguageKey].name
                     : 'English';
 
-                // Only pass a language hint when the text is Latin/ambiguous;
-                // for native scripts, Gemini's auto-detect is more accurate.
+                // Only pass a language hint when the text is Latin/ambiguous
                 const languageHint = detectedQueryLang ? null : selectedLangName;
 
                 const payload = { message: queryText };
@@ -2650,17 +2667,29 @@
                     const respText = data.response;
                     if (narratorOutput) narratorOutput.textContent = respText;
                     const respLang = detectScriptLanguage(respText) || detectedQueryLang;
+                    // Force-cancel any queued speech before speaking new response
+                    try { window.speechSynthesis.cancel(); } catch(e) {}
                     speakText(respText, 1, null, null, null, respLang);
                 } else {
                     const fallback = "I could not retrieve an answer at the moment.";
                     if (narratorOutput) narratorOutput.textContent = fallback;
+                    try { window.speechSynthesis.cancel(); } catch(e) {}
                     speakText(fallback, 1);
                 }
             } catch (err) {
                 console.error("[AJ Chat Error]:", err);
                 const errSpeech = "Sorry, I am having trouble connecting to my chat service.";
                 if (narratorOutput) narratorOutput.textContent = errSpeech;
-                speakText(errSpeech, 1);
+                // Client-side fallback TTS even if backend is unreachable
+                try {
+                    window.speechSynthesis.cancel();
+                    const fallbackUtt = new SpeechSynthesisUtterance(errSpeech);
+                    fallbackUtt.lang = 'en-US';
+                    fallbackUtt.rate = 1.0;
+                    window.speechSynthesis.speak(fallbackUtt);
+                } catch(ttsErr) {
+                    console.warn('[AJ TTS Fallback failed]:', ttsErr);
+                }
             }
         }
 

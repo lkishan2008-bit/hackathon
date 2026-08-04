@@ -68,7 +68,15 @@ def analyze():
         api_key = os.getenv('GEMINI_API_KEY')
         print(f"API KEY LOADED: {api_key[:10] if api_key else 'MISSING - CHECK .env FILE'}")
         if not api_key:
-            raise ValueError("GEMINI_API_KEY environment variable is missing")
+            # Return safe fallback JSON instead of crashing with 500
+            return jsonify({
+                "status": "error",
+                "description": "Vision temporarily unavailable.",
+                "obstacles": [],
+                "detected_objects": [],
+                "smart_danger": {"detected": False, "type": None, "direction": None, "distance": None},
+                "detected_events": {"vehicles": False, "running_people": False, "sudden_darkness": False, "rain": False, "smoke": False}
+            }), 200
             
         # Target Gemini 3.5 Flash endpoint (fallback to Gemini 2.5 Flash)
         system_prompt = """
@@ -219,8 +227,17 @@ STRICT RULES FOR YOUR OUTPUT:
         parsed_json = json.loads(cleaned_text)
         if not isinstance(parsed_json, dict):
             parsed_json = {}
-        if 'obstacles' not in parsed_json or not parsed_json['obstacles']:
+
+        # Always guarantee required arrays and fields exist
+        parsed_json.setdefault('status', 'success')
+        parsed_json.setdefault('obstacles', [])
+        parsed_json.setdefault('detected_objects', [])
+        parsed_json.setdefault('description', '')
+
+        if not isinstance(parsed_json.get('obstacles'), list):
             parsed_json['obstacles'] = []
+        if not isinstance(parsed_json.get('detected_objects'), list):
+            parsed_json['detected_objects'] = []
 
         if 'smart_danger' not in parsed_json:
             parsed_json['smart_danger'] = {
@@ -230,20 +247,25 @@ STRICT RULES FOR YOUR OUTPUT:
                 "distance": None
             }
         if 'detected_events' not in parsed_json:
-            parsed_json['detected_events'] = {}
-            
+            parsed_json['detected_events'] = {
+                "vehicles": False, "running_people": False, "sudden_darkness": False,
+                "rain": False, "smoke": False
+            }
+
         return jsonify(parsed_json)
             
     except Exception as e:
         import traceback
-        print("=== Error calling Gemini API or parsing response ===")
-        print(f"Details: {e}")
+        print("=== Gemini API Error or Parse Failure ===")
+        print(f"Gemini API Error: {e}")
         traceback.print_exc()
-        print("====================================================")
-        # Return clean response without fake/simulated obstacles when offline or error
+        print("=========================================")
+        # ALWAYS return HTTP 200 with a clean, structured payload so frontend never hangs
         return jsonify({
-            "description": "Offline safety mode active.",
+            "status": "error",
+            "description": "",
             "obstacles": [],
+            "detected_objects": [],
             "smart_danger": {
                 "detected": False,
                 "type": None,

@@ -859,16 +859,53 @@
             border-radius: 16px;
             padding: 1.5rem 1.25rem;
             backdrop-filter: blur(16px);
-            transition: all 0.3s ease;
+            cursor: pointer;
+            transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
             display: flex;
             flex-direction: column;
             align-items: flex-start;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .feature-card::before {
+            content: '';
+            position: absolute;
+            inset: 0;
+            background: linear-gradient(135deg, rgba(0,242,254,0.04) 0%, transparent 60%);
+            opacity: 0;
+            transition: opacity 0.3s ease;
+            pointer-events: none;
         }
 
         .feature-card:hover {
-            transform: translateY(-4px);
-            border-color: var(--primary);
-            box-shadow: 0 12px 30px rgba(0, 242, 254, 0.15);
+            transform: translateY(-5px);
+            border-color: rgba(0, 242, 254, 0.7);
+            box-shadow: 0 8px 32px rgba(0, 242, 254, 0.22), 0 0 0 1px rgba(0, 242, 254, 0.12);
+        }
+
+        .feature-card:hover::before {
+            opacity: 1;
+        }
+
+        .feature-card:active {
+            transform: translateY(-2px) scale(0.985);
+        }
+
+        .feature-card .card-cta-hint {
+            font-size: 0.78rem;
+            color: var(--primary);
+            opacity: 0;
+            margin-top: auto;
+            padding-top: 0.75rem;
+            display: flex;
+            align-items: center;
+            gap: 0.35rem;
+            transition: opacity 0.2s ease;
+        }
+
+        .feature-card:hover .card-cta-hint {
+            opacity: 0.8;
         }
 
         .feature-icon {
@@ -950,26 +987,47 @@
     <section class="features-section" id="features-section">
         <h2 class="section-title"><i class="fa-solid fa-cubes"></i> Core Pillars of VisionAid</h2>
         <div class="features-grid">
-            <div class="feature-card">
+
+            <!-- Card 1: Spatial Radar -->
+            <div class="feature-card" role="button" tabindex="0" aria-label="Launch Spatial Radar" id="pillar-radar"
+                onclick="pillarLaunchRadar()"
+                onkeydown="if(event.key==='Enter'||event.key===' ')pillarLaunchRadar()">
                 <div class="feature-icon"><i class="fa-solid fa-radar"></i></div>
                 <h3>Spatial Radar</h3>
                 <p>Vision-driven real-time canvas target plotting with bounding box obstacle mapping and polar coordinate target tracking.</p>
+                <span class="card-cta-hint"><i class="fa-solid fa-arrow-right"></i> Open Radar Dashboard</span>
             </div>
-            <div class="feature-card">
+
+            <!-- Card 2: Voice-First GPS -->
+            <div class="feature-card" role="button" tabindex="0" aria-label="Launch Voice GPS" id="pillar-gps"
+                onclick="pillarLaunchGPS()"
+                onkeydown="if(event.key==='Enter'||event.key===' ')pillarLaunchGPS()">
                 <div class="feature-icon"><i class="fa-solid fa-route"></i></div>
                 <h3>Voice-First GPS</h3>
                 <p>Localized turn-by-turn geocoding supporting routes across Karnataka (Bengaluru, Sakleshpura, Sagara) with OSRM integration.</p>
+                <span class="card-cta-hint"><i class="fa-solid fa-arrow-right"></i> Open Navigation Map</span>
             </div>
-            <div class="feature-card">
+
+            <!-- Card 3: Multilingual AI -->
+            <div class="feature-card" role="button" tabindex="0" aria-label="Launch Multilingual AI" id="pillar-multilingual"
+                onclick="pillarLaunchMultilingual()"
+                onkeydown="if(event.key==='Enter'||event.key===' ')pillarLaunchMultilingual()">
                 <div class="feature-icon"><i class="fa-solid fa-language"></i></div>
                 <h3>Multilingual AI</h3>
                 <p>Regional voice synthesis and conversational support in Kannada (ಕನ್ನಡ), Telugu (తెలుగు), Hindi (हिंदी), and English.</p>
+                <span class="card-cta-hint"><i class="fa-solid fa-arrow-right"></i> Open AI Assistant</span>
             </div>
-            <div class="feature-card">
+
+            <!-- Card 4: Offline Safety Guard -->
+            <div class="feature-card" role="button" tabindex="0" aria-label="Launch Safety Guard" id="pillar-safety"
+                onclick="pillarLaunchSafety()"
+                onkeydown="if(event.key==='Enter'||event.key===' ')pillarLaunchSafety()">
                 <div class="feature-icon"><i class="fa-solid fa-shield-halved"></i></div>
                 <h3>Offline Safety Guard</h3>
                 <p>Fail-safe alert framework guaranteeing continuous offline navigation and hazard detection even during network drops.</p>
+                <span class="card-cta-hint"><i class="fa-solid fa-arrow-right"></i> Run Safety Check</span>
             </div>
+
         </div>
     </section>
 
@@ -3870,6 +3928,94 @@
                     try { window.recognition.start(); } catch(e) {}
                 }
             };
+        }
+
+        /* ── Pillar Card Click Handlers ─────────────────────────────────── */
+
+        function pillarLaunchRadar() {
+            // 1. Scroll to live dashboard
+            const mainWorkspace = document.getElementById('main-content');
+            if (mainWorkspace) mainWorkspace.scrollIntoView({ behavior: 'smooth' });
+            // 2. Ensure camera & scanning are live
+            startCamera();
+            if (!isAutoscanActive) toggleSystemScanning();
+            // 3. Flash-highlight the radar canvas
+            const radarEl = document.getElementById('spatial-radar-canvas');
+            if (radarEl) {
+                radarEl.style.transition = 'box-shadow 0.3s ease';
+                radarEl.style.boxShadow = '0 0 28px rgba(0,242,254,0.9)';
+                setTimeout(() => { radarEl.style.boxShadow = ''; }, 2000);
+            }
+            // 4. Voice feedback
+            setTimeout(() => speakText('Spatial radar is now tracking. Scanning for obstacles.', 1), 600);
+        }
+
+        function pillarLaunchGPS() {
+            // 1. Scroll to the map section
+            const mapEl = document.getElementById('map-canvas') || document.getElementById('google-map');
+            if (mapEl) mapEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            // 2. Highlight directions container
+            const dirEl = document.getElementById('directions-container');
+            if (dirEl) {
+                dirEl.style.transition = 'box-shadow 0.3s ease';
+                dirEl.style.boxShadow = '0 0 20px rgba(0,242,254,0.6)';
+                setTimeout(() => { dirEl.style.boxShadow = ''; }, 2000);
+            }
+            // 3. Voice prompt asking for destination
+            setTimeout(() => speakText('Voice GPS is ready. Say: Hey AJ, navigate to your destination.', 1), 600);
+        }
+
+        function pillarLaunchMultilingual() {
+            // 1. Scroll to AJ Assistant column
+            const ajCol = document.getElementById('col2-title');
+            if (ajCol) ajCol.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            // 2. Highlight language badge
+            const langBadge = document.getElementById('active-language-badge');
+            if (langBadge) {
+                langBadge.style.transition = 'box-shadow 0.3s, border-color 0.3s';
+                langBadge.style.boxShadow = '0 0 18px rgba(0,242,254,0.8)';
+                langBadge.style.borderColor = 'var(--primary)';
+                setTimeout(() => {
+                    langBadge.style.boxShadow = '';
+                    langBadge.style.borderColor = '';
+                }, 2200);
+            }
+            // 3. Multilingual greeting cycling through 4 languages
+            const greetings = [
+                'Namaskara! I am AJ, your multilingual navigation assistant.',
+                'ನಮಸ್ಕಾರ! ನಾನು AJ, ನಿಮ್ಮ ಕನ್ನಡ ನ್ಯಾವಿಗೇಷನ್ ಸಹಾಯಕ.',
+                'నమస్కారం! నేను AJ, మీ తెలుగు నావిగేషన్ సహాయకుడిని.',
+                'नमस्ते! मैं AJ हूँ, आपका हिंदी नेविगेशन सहायक।'
+            ];
+            let delay = 700;
+            greetings.forEach((g, idx) => {
+                setTimeout(() => speakText(g, 1), delay + idx * 3500);
+            });
+        }
+
+        function pillarLaunchSafety() {
+            // 1. Scroll to viewport
+            const viewport = document.getElementById('viewport-container');
+            if (viewport) viewport.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            // 2. Start camera if not running
+            startCamera();
+            // 3. Flash the scan badge
+            const scanBadge = document.getElementById('scan-status-btn');
+            if (scanBadge) {
+                scanBadge.style.transition = 'box-shadow 0.3s';
+                scanBadge.style.boxShadow = '0 0 22px rgba(16,185,129,0.8)';
+                scanBadge.style.borderColor = 'var(--success)';
+                scanBadge.querySelector('span').textContent = 'Safety Check Active';
+                setTimeout(() => {
+                    scanBadge.style.boxShadow = '';
+                    scanBadge.style.borderColor = '';
+                    scanBadge.querySelector('span').textContent = isAutoscanActive ? 'Scan Active' : 'Scan Offline';
+                }, 2500);
+            }
+            // 4. Trigger a scan pass if not already active
+            if (!isAutoscanActive) toggleSystemScanning();
+            // 5. Safety voice report
+            setTimeout(() => speakText('Offline safety guard is active. Monitoring surroundings for hazards.', 1), 600);
         }
 
         function launchLiveAssistantWorkspace() {

@@ -22,7 +22,8 @@ app = Flask(__name__)
 # Home route - Renders index.html template
 @app.route('/')
 def home():
-    return render_template('index.html')
+    google_maps_api_key = os.getenv('GOOGLE_MAPS_API_KEY', '')
+    return render_template('index.html', google_maps_api_key=google_maps_api_key)
 
 # AI Analysis endpoint - Receives base64 image data and queries Gemini AI
 @app.route('/analyze', methods=['POST'])

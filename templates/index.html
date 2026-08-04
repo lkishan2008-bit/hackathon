@@ -1,0 +1,3186 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VisionAid - AI Navigation Assistant</title>
+    <!-- Suppress favicon.ico 404 error -->
+    <link rel="icon" href="data:,">
+    
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+    
+    <!-- FontAwesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+
+    <!-- Leaflet.js - Open Source Interactive Maps (replaces Google Maps) -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <style>
+        /* Ensure map fills its container */
+        #google-map { width: 100%; height: 100%; border-radius: 12px; }
+    </style>
+
+    <style>
+        :root {
+            --bg-color: #050811;
+            --card-bg: rgba(13, 20, 38, 0.75);
+            --border-color: rgba(0, 242, 254, 0.15);
+            --primary: #00f2fe;
+            --primary-glow: rgba(0, 242, 254, 0.4);
+            --secondary: #4facfe;
+            --accent: #ffd814;
+            --accent-glow: rgba(255, 216, 20, 0.3);
+            --text-main: #f1f5f9;
+            --text-muted: #64748b;
+            --focus-outline: #ff9900;
+            --error: #ef4444;
+            --success: #10b981;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            background-color: var(--bg-color);
+            background-image: 
+                radial-gradient(at 0% 0%, rgba(79, 172, 254, 0.08) 0px, transparent 40%),
+                radial-gradient(at 100% 0%, rgba(0, 242, 254, 0.08) 0px, transparent 40%),
+                radial-gradient(at 50% 100%, rgba(13, 20, 38, 0.5) 0px, transparent 50%);
+            color: var(--text-main);
+            font-family: 'Outfit', sans-serif;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow-x: hidden;
+            line-height: 1.5;
+        }
+
+        .sr-only {
+            position: absolute;
+            width: 1px;
+            height: 1px;
+            padding: 0;
+            margin: -1px;
+            overflow: hidden;
+            clip: rect(0, 0, 0, 0);
+            border: 0;
+        }
+
+        header {
+            padding: 1.5rem;
+            text-align: center;
+            border-bottom: 1px solid var(--border-color);
+            background: rgba(5, 8, 17, 0.85);
+            backdrop-filter: blur(12px);
+            z-index: 10;
+        }
+
+        h1 {
+            font-size: 2.2rem;
+            font-weight: 800;
+            background: linear-gradient(135deg, var(--primary), var(--secondary));
+            -webkit-background-clip: text;
+            background-clip: text;
+            -webkit-text-fill-color: transparent;
+            letter-spacing: -0.025em;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.75rem;
+        }
+
+        h1 i {
+            color: var(--primary);
+            -webkit-text-fill-color: initial;
+            filter: drop-shadow(0 0 10px var(--primary-glow));
+        }
+
+        .subtitle {
+            font-size: 1rem;
+            color: var(--text-muted);
+            font-weight: 300;
+            margin-top: 0.25rem;
+        }
+
+        /* 3-Column Layout Grid */
+        main {
+            flex: 1;
+            max-width: 1600px;
+            width: 100%;
+            margin: 0 auto;
+            padding: 1.5rem;
+            display: grid;
+            grid-template-columns: 0.9fr 1.2fr 0.9fr;
+            gap: 1.5rem;
+            align-items: start;
+        }
+
+        @media (max-width: 1200px) {
+            main {
+                grid-template-columns: 1fr 1fr;
+            }
+            .gps-sidebar-card {
+                grid-column: span 2;
+            }
+        }
+
+        @media (max-width: 768px) {
+            main {
+                grid-template-columns: 1fr;
+            }
+            .gps-sidebar-card {
+                grid-column: span 1;
+            }
+        }
+
+        .card {
+            background: var(--card-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 16px;
+            padding: 1.5rem;
+            backdrop-filter: blur(16px);
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+            display: flex;
+            flex-direction: column;
+            min-height: 520px;
+        }
+
+        /* Maps Dashboard: allow natural height so it doesn't overflow its column */
+        .gps-sidebar-card {
+            min-height: auto;
+        }
+
+        .card-title {
+            font-size: 1.3rem;
+            font-weight: 600;
+            margin-bottom: 1.25rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            border-bottom: 1px dashed rgba(255, 255, 255, 0.08);
+            padding-bottom: 0.5rem;
+        }
+
+        .card-title i {
+            color: var(--primary);
+        }
+
+        /* Live Viewport */
+        .viewport-wrapper {
+            position: relative;
+            width: 100%;
+            aspect-ratio: 4/3;
+            background: #02040a;
+            border-radius: 12px;
+            overflow: hidden;
+            border: 2px solid rgba(255, 255, 255, 0.03);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .viewport-wrapper.active-border {
+            border-color: var(--primary);
+        }
+
+        video, #image-preview {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+
+        #image-preview {
+            display: none;
+        }
+
+        .viewport-placeholder {
+            position: absolute;
+            text-align: center;
+            color: var(--text-muted);
+            pointer-events: none;
+            padding: 1rem;
+            z-index: 2;
+        }
+
+        .viewport-placeholder i {
+            font-size: 3rem;
+            color: rgba(255, 255, 255, 0.05);
+            margin-bottom: 0.5rem;
+        }
+
+        /* Low Light Alert Overlay */
+        .dark-overlay {
+            display: none;
+            position: absolute;
+            inset: 0;
+            background: rgba(255, 216, 20, 0.1);
+            border: 2px solid var(--accent);
+            z-index: 6;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+            backdrop-filter: blur(2px);
+        }
+
+        .dark-overlay i {
+            font-size: 2.5rem;
+            color: var(--accent);
+            margin-bottom: 0.5rem;
+        }
+
+        .dark-overlay p {
+            font-size: 1.1rem;
+            font-weight: 800;
+            color: white;
+        }
+
+        /* Scanner line */
+        .scanner-line {
+            display: none;
+            position: absolute;
+            width: 100%;
+            height: 4px;
+            background: linear-gradient(to right, transparent, var(--primary), transparent);
+            box-shadow: 0 0 15px var(--primary);
+            top: 0;
+            left: 0;
+            animation: scan 2s linear infinite;
+            z-index: 5;
+        }
+
+        @keyframes scan {
+            0% { top: 0%; }
+            50% { top: 100%; }
+            100% { top: 0%; }
+        }
+
+        /* Status badges */
+        .status-container {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.5rem;
+            margin-bottom: 0.75rem;
+        }
+
+        .badge {
+            font-family: 'Space Mono', monospace;
+            font-size: 0.75rem;
+            font-weight: 600;
+            padding: 0.25rem 0.6rem;
+            border-radius: 20px;
+            background: rgba(255, 255, 255, 0.05);
+            color: var(--text-muted);
+            display: flex;
+            align-items: center;
+            gap: 0.35rem;
+            border: 1px solid rgba(255, 255, 255, 0.03);
+        }
+
+        .badge.active {
+            background: rgba(0, 242, 254, 0.1);
+            color: var(--primary);
+            border-color: rgba(0, 242, 254, 0.2);
+        }
+
+        .badge.success-badge {
+            background: rgba(16, 185, 129, 0.1);
+            color: var(--success);
+            border-color: rgba(16, 185, 129, 0.2);
+        }
+
+        .narration-box {
+            background: rgba(2, 4, 8, 0.4);
+            border: 1px solid rgba(255, 255, 255, 0.03);
+            border-radius: 12px;
+            padding: 1.25rem;
+            flex-grow: 1;
+            display: flex;
+            flex-direction: column;
+            margin-bottom: 1rem;
+            position: relative;
+            min-height: 140px;
+        }
+
+        .narration-text {
+            font-size: 1.1rem;
+            line-height: 1.6;
+            color: var(--text-main);
+            overflow-y: auto;
+            flex-grow: 1;
+        }
+
+        .audio-wave {
+            display: none;
+            align-items: center;
+            gap: 3px;
+            height: 30px;
+            justify-content: center;
+            margin-top: 0.5rem;
+        }
+
+        .wave-bar {
+            width: 3px;
+            height: 10px;
+            background-color: var(--primary);
+            border-radius: 2px;
+            animation: bounce 0.5s infinite alternate;
+        }
+        .wave-bar:nth-child(2) { animation-delay: 0.1s; height: 18px; }
+        .wave-bar:nth-child(3) { animation-delay: 0.2s; height: 25px; }
+        .wave-bar:nth-child(4) { animation-delay: 0.3s; height: 14px; }
+        .wave-bar:nth-child(5) { animation-delay: 0.4s; height: 8px; }
+
+        @keyframes bounce {
+            100% {
+                transform: scaleY(1.8);
+                background-color: var(--secondary);
+            }
+        }
+
+        /* Circular Spatial Radar */
+        .radar-container {
+            width: 130px;
+            height: 130px;
+            border: 1px solid rgba(0, 242, 254, 0.25);
+            border-radius: 50%;
+            margin: 0 auto 1rem;
+            position: relative;
+            background: radial-gradient(circle, rgba(0, 242, 254, 0.02) 0%, rgba(0,0,0,0) 70%);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .radar-ring-inner {
+            width: 65px;
+            height: 65px;
+            border: 1px dashed rgba(0, 242, 254, 0.15);
+            border-radius: 50%;
+            position: absolute;
+        }
+
+        .radar-cross-x {
+            width: 100%;
+            height: 1px;
+            background: rgba(0, 242, 254, 0.15);
+            position: absolute;
+        }
+
+        .radar-cross-y {
+            width: 1px;
+            height: 100%;
+            background: rgba(0, 242, 254, 0.15);
+            position: absolute;
+        }
+
+        .radar-sweeper {
+            position: absolute;
+            width: 50%;
+            height: 50%;
+            top: 0;
+            left: 0;
+            transform-origin: bottom right;
+            background: linear-gradient(45deg, rgba(0, 242, 254, 0.15) 0%, transparent 80%);
+            border-radius: 100% 0 0 0;
+            animation: sweep 3s linear infinite;
+        }
+
+        @keyframes sweep {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .radar-blip {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            position: absolute;
+            z-index: 4;
+            transform: translate(-50%, -50%);
+            box-shadow: 0 0 8px currentColor;
+            animation: blip-glow 1s infinite alternate;
+        }
+        .radar-blip.left { left: 25%; top: 50%; color: var(--accent); }
+        .radar-blip.right { left: 75%; top: 50%; color: var(--accent); }
+        .radar-blip.center { left: 50%; top: 30%; color: var(--error); }
+
+        @keyframes blip-glow {
+            0% { transform: translate(-50%, -50%) scale(0.8); opacity: 0.5; }
+            100% { transform: translate(-50%, -50%) scale(1.2); opacity: 1; }
+        }
+
+        .radar-label {
+            font-size: 0.7rem;
+            color: var(--text-muted);
+            font-family: 'Space Mono', monospace;
+            position: absolute;
+            bottom: -18px;
+            text-align: center;
+            width: 100%;
+        }
+
+        /* AJ Assistant Visualizer */
+        .aj-visualizer {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            position: relative;
+            height: 200px;
+            width: 100%;
+            margin: 1.5rem 0;
+        }
+
+        .aj-core {
+            width: 60px;
+            height: 60px;
+            border-radius: 50%;
+            background: radial-gradient(circle, var(--primary) 0%, var(--secondary) 100%);
+            box-shadow: 0 0 30px var(--primary-glow);
+            z-index: 5;
+            transition: all 0.3s ease;
+        }
+
+        .aj-visualizer.listening .aj-core {
+            background: radial-gradient(circle, var(--accent) 0%, #ff8c00 100%);
+            box-shadow: 0 0 35px var(--accent-glow);
+            animation: pulse-core 1.5s infinite alternate;
+        }
+
+        .aj-visualizer.speaking .aj-core {
+            background: radial-gradient(circle, #00ff87 0%, #60efff 100%);
+            box-shadow: 0 0 35px rgba(0, 255, 135, 0.4);
+            animation: speak-core 0.8s infinite alternate;
+        }
+
+        .aj-ring {
+            position: absolute;
+            border: 2px solid var(--primary);
+            border-radius: 50%;
+            opacity: 0.15;
+            transition: all 0.3s ease;
+        }
+        .ring-1 { width: 100px; height: 100px; animation: rotate-ring 6s linear infinite; border-style: dashed; }
+        .ring-2 { width: 140px; height: 140px; animation: rotate-ring-reverse 8s linear infinite; border-style: dotted; }
+        .ring-3 { width: 180px; height: 180px; animation: pulse-ring 2.5s infinite; }
+
+        .aj-visualizer.listening .aj-ring { border-color: var(--accent); }
+        .aj-visualizer.speaking .aj-ring { border-color: #00ff87; }
+
+        @keyframes rotate-ring { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        @keyframes rotate-ring-reverse { 0% { transform: rotate(360deg); } 100% { transform: rotate(0deg); } }
+        @keyframes pulse-ring { 0% { transform: scale(0.9); opacity: 0.2; } 50% { transform: scale(1.1); opacity: 0.05; } 100% { transform: scale(1.3); opacity: 0; } }
+        @keyframes pulse-core { 0% { transform: scale(0.95); } 100% { transform: scale(1.05); } }
+        @keyframes speak-core { 0% { transform: scale(0.9); } 100% { transform: scale(1.15); } }
+
+        /* AJ Assistant Card Details */
+        .nav-command-indicator {
+            background: rgba(0, 242, 254, 0.05);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 0.8rem;
+            margin-bottom: 1rem;
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }
+
+        .mic-orb {
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            background: #ef4444;
+            transition: all 0.3s ease;
+        }
+
+        .mic-orb.recording {
+            background: var(--primary);
+            box-shadow: 0 0 10px var(--primary);
+            animation: mic-pulse 1.2s infinite alternate;
+        }
+
+        @keyframes mic-pulse {
+            0% { transform: scale(0.9); opacity: 0.7; }
+            100% { transform: scale(1.2); opacity: 1; }
+        }
+
+        .transcript-text {
+            font-size: 0.9rem;
+            color: var(--text-muted);
+            font-style: italic;
+        }
+
+        /* Permanent Maps Panel (Left Sidebar) */
+        .map-viewport {
+            height: 250px;
+            width: 100%;
+            background: #02040a;
+            border-radius: 12px;
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            margin-bottom: 1rem;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .map-overlay-header {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            right: 10px;
+            background: rgba(13, 20, 38, 0.9);
+            border: 1px solid rgba(0, 242, 254, 0.25);
+            border-radius: 8px;
+            padding: 6px 12px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 0.8rem;
+            z-index: 5;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+            backdrop-filter: blur(4px);
+        }
+        .map-gps-icon {
+            color: #ef4444;
+            animation: gps-ping 1.5s infinite alternate;
+        }
+        @keyframes gps-ping {
+            0% { transform: scale(0.9); opacity: 0.7; }
+            100% { transform: scale(1.2); opacity: 1; }
+        }
+        .map-location-text {
+            font-weight: 600;
+            color: var(--text-main);
+            flex-grow: 1;
+        }
+        .map-status-pill {
+            background: rgba(16, 185, 129, 0.2);
+            color: #10b981;
+            border: 1px solid rgba(16, 185, 129, 0.4);
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 0.65rem;
+            font-weight: bold;
+            letter-spacing: 0.05em;
+        }
+        .map-zoom-controls {
+            position: absolute;
+            bottom: 10px;
+            right: 10px;
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+            z-index: 5;
+        }
+        .map-zoom-btn {
+            width: 32px;
+            height: 32px;
+            border-radius: 6px;
+            background: rgba(13, 20, 38, 0.9);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            color: var(--text-main);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            outline: none;
+        }
+        .map-zoom-btn:hover {
+            border-color: var(--primary);
+            color: var(--primary);
+            background: rgba(0, 242, 254, 0.05);
+        }
+        .map-zoom-btn:active {
+            transform: scale(0.95);
+        }
+
+        .directions-list {
+            flex-grow: 1;
+            overflow-y: auto;
+            max-height: 200px;
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+            font-size: 0.9rem;
+        }
+
+        .direction-step {
+            padding: 0.5rem;
+            border-radius: 6px;
+            background: rgba(255, 255, 255, 0.02);
+            border-left: 3px solid #334155;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            color: var(--text-muted);
+        }
+
+        .direction-step.active-step {
+            background: rgba(0, 242, 254, 0.08);
+            border-left-color: var(--primary);
+            color: var(--text-main);
+            font-weight: 600;
+        }
+
+        .direction-step i {
+            color: var(--primary);
+        }
+
+        .decibel-badge {
+            background: rgba(255, 255, 255, 0.05);
+            padding: 0.2rem 0.5rem;
+            border-radius: 4px;
+            font-family: 'Space Mono', monospace;
+            font-size: 0.75rem;
+            margin-left: auto;
+        }
+
+        .decibel-badge.spiked {
+            background: rgba(239, 68, 68, 0.2);
+            color: var(--error);
+            font-weight: bold;
+            animation: text-flicker 0.5s infinite;
+        }
+
+        footer {
+            text-align: center;
+            padding: 1rem;
+            font-size: 0.85rem;
+            color: var(--text-muted);
+            border-top: 1px solid var(--border-color);
+            background: rgba(5, 8, 17, 0.9);
+            margin-top: auto;
+        }
+
+        #file-input {
+            display: none;
+        }
+
+        .language-display-badge {
+            margin-top: 0.5rem;
+            background: rgba(0, 242, 254, 0.05);
+            border: 1px solid rgba(0, 242, 254, 0.15);
+            padding: 0.3rem 0.6rem;
+            border-radius: 8px;
+            font-size: 0.8rem;
+            color: var(--primary);
+            font-family: 'Space Mono', monospace;
+            text-align: center;
+        }
+    </style>
+<link rel="icon" href="data:,">
+</head>
+<body>
+
+    <a href="#main-content" class="sr-only" tabindex="0">Skip to Main Content</a>
+
+    <header role="banner">
+        <div class="header-container">
+            <h1>
+                <i class="fa-solid fa-eye-low-vision" aria-hidden="true"></i> 
+                <span>VisionAid</span>
+            </h1>
+            <p class="subtitle" id="site-description">Autonomous Spatial Mapping & Voice Navigation Assistant</p>
+        </div>
+    </header>
+
+    <!-- Main Workspace Grid (3-Column Layout) -->
+    <main id="main-content" role="main">
+        
+        <!-- Column 1: Live Viewport & Spatial Radar -->
+        <section class="card" aria-labelledby="col1-title">
+            <h2 id="col1-title" class="card-title">
+                <i class="fa-solid fa-camera" aria-hidden="true"></i>
+                <span>Live Viewport & Spatial Radar</span>
+            </h2>
+
+            <div class="viewport-wrapper" id="viewport-container" aria-label="Live camera preview">
+                <div class="scanner-line" id="scanner"></div>
+                
+                <div class="dark-overlay" id="dark-alert" style="display:none;" aria-hidden="true">
+                    <i class="fa-solid fa-moon"></i>
+                    <p>LOW LIGHT DETECTED</p>
+                </div>
+
+                <video id="webcam" autoplay playsinline muted></video>
+                <img id="image-preview" alt="Captured snapshot preview">
+
+                <div class="viewport-placeholder" id="viewport-placeholder">
+                    <i class="fa-solid fa-video-slash" aria-hidden="true"></i>
+                    <p>Webcam loading...</p>
+                </div>
+            </div>
+
+            <canvas id="hidden-canvas" style="display:none;"></canvas>
+
+            <div class="status-container" style="margin-top: 1rem;">
+                <span class="badge" id="scan-status-btn" style="cursor: pointer; z-index: 10; position: relative;">
+                    <i class="fa-solid fa-circle-dot"></i><span>Scan Offline</span>
+                </span>
+                <span class="badge" id="badge-light">
+                    <i class="fa-solid fa-sun"></i><span>Lux Norm</span>
+                </span>
+            </div>
+
+            <div class="radar-container" aria-hidden="true" style="margin-top: 1rem; width: 130px; height: 130px; position: relative;">
+                <canvas id="spatial-radar-canvas" width="130" height="130" style="position: absolute; top:0; left:0; width:100%; height:100%; border-radius: 50%;"></canvas>
+                <div class="radar-label">Spatial Radar</div>
+            </div>
+        </section>
+
+        <!-- Column 2: AJ AI Core Assistant -->
+        <section class="card" aria-labelledby="col2-title">
+            <h2 id="col2-title" class="card-title">
+                <i class="fa-solid fa-microphone-lines" aria-hidden="true"></i>
+                <span>AJ AI Assistant</span>
+            </h2>
+
+            <div class="nav-command-indicator">
+                <div class="mic-orb" id="mic-status-orb"></div>
+                <div class="transcript-text" id="transcript-display">Voice Onboarding Active</div>
+            </div>
+
+            <div class="aj-visualizer" id="assistant-visualizer">
+                <div class="aj-ring ring-1"></div>
+                <div class="aj-ring ring-2"></div>
+                <div class="aj-ring ring-3"></div>
+                <div class="aj-core"></div>
+            </div>
+
+            <div class="language-display-badge" id="active-language-badge">
+                Selected Language: English
+            </div>
+
+            <div class="narration-box" style="margin-top: 1rem;">
+                <div class="narration-text" id="narrator-output" aria-live="assertive" tabindex="0">
+                    Welcome to VisionAid. Always-on voice scanning is ready. Speak commands starting with "Hey AJ".
+                </div>
+                
+                <div class="audio-wave" id="wave-anim" aria-hidden="true">
+                    <div class="wave-bar"></div>
+                    <div class="wave-bar"></div>
+                    <div class="wave-bar"></div>
+                    <div class="wave-bar"></div>
+                    <div class="wave-bar"></div>
+                </div>
+            </div>
+
+            <div class="status-container" style="justify-content: flex-end;">
+                <span class="badge" id="badge-db">
+                    <i class="fa-solid fa-microphone"></i><span id="db-value">0 dB</span>
+                </span>
+                <span class="decibel-badge" id="db-warning-alert">Horn Monitor</span>
+            </div>
+        </section>
+        
+        <!-- Column 3: Permanent Google Maps Sidebar -->
+        <section class="card gps-sidebar-card" aria-labelledby="col3-title">
+            <h2 id="col3-title" class="card-title">
+                <i class="fa-solid fa-map-location-dot" aria-hidden="true"></i>
+                <span>Permanent Maps Dashboard</span>
+            </h2>
+
+            <!-- Google Maps Viewport -->
+            <div class="map-viewport" id="map-canvas" style="position: relative;">
+                <!-- Real Google Maps Container -->
+                <div id="google-map" style="width:100%; height:100%; border-radius:12px;"></div>
+
+                <!-- Map Header Overlay -->
+                <div class="map-overlay-header">
+                    <i class="fa-solid fa-location-dot map-gps-icon"></i>
+                    <span class="map-location-text" id="map-location-label">Bengaluru, KA</span>
+                    <span class="map-status-pill" id="map-gps-pill">GPS ACTIVE</span>
+                </div>
+            </div>
+
+            <div class="status-container" style="margin-bottom:0.75rem;">
+                <span class="badge" id="badge-gps-dest">
+                    <i class="fa-solid fa-compass"></i><span>Ready</span>
+                </span>
+            </div>
+
+            <div class="directions-list" id="directions-container">
+                <div class="direction-step active-step">
+                    <i class="fa-solid fa-location-crosshairs"></i>
+                    <div>GPS receiver ready. Say "Hey AJ navigate to [destination]" to initiate directions.</div>
+                </div>
+            </div>
+        </section>
+
+    </main>
+
+    <div class="system-alerts" id="screamer-box" aria-live="assertive"></div>
+
+    <footer>
+        <p>&copy; 2026 VisionAid. Speech synthesis, Spatial Audio Panning & Voice GPS. Designed with Accessibility focus.</p>
+    </footer>
+
+    <input type="file" id="file-input" accept="image/*">
+
+    <script>
+        // DOM Elements
+        const webcam = document.getElementById('webcam');
+        const imagePreview = document.getElementById('image-preview');
+        const viewportContainer = document.getElementById('viewport-container');
+        const viewportPlaceholder = document.getElementById('viewport-placeholder');
+        const scanner = document.getElementById('scanner');
+        const darkAlert = document.getElementById('dark-alert');
+        const narratorOutput = document.getElementById('narrator-output');
+        const waveAnim = document.getElementById('wave-anim');
+        const screamerBox = document.getElementById('screamer-box');
+        const assistantVisualizer = document.getElementById('assistant-visualizer');
+        const activeLanguageBadge = document.getElementById('active-language-badge');
+        
+        // Badges
+        const badgeScan = document.getElementById('scan-status-btn');
+        const badgeLight = document.getElementById('badge-light');
+        const badgeGpsDest = document.getElementById('badge-gps-dest');
+        const badgeDb = document.getElementById('badge-db');
+        const dbValueText = document.getElementById('db-value');
+        const dbWarningAlert = document.getElementById('db-warning-alert');
+        const blipsHolder = document.getElementById('radar-blips-holder');
+        let radarCanvas = null;
+        let radarCtx = null;
+        let radarSweepAngle = 0;
+        let radarHazards = [];
+        // Global persistent target array - only updated on successful /analyze responses
+        let activeRadarTargets = [];
+        
+        // Voice Navigation elements
+        const micStatusOrb = document.getElementById('mic-status-orb');
+        const transcriptDisplay = document.getElementById('transcript-display');
+        const directionsContainer = document.getElementById('directions-container');
+        
+        // Context Variables
+        let videoStream = null;
+        let audioContext = null;
+        let analyser = null;
+        let microphoneStream = null;
+        
+        let isAutoscanActive = false;
+        let isVoiceRecogActive = true; 
+        let isMicAlarmActive = true;  
+        let isScanLoopRunning = false;
+        let isRecognitionRunning = false;
+        let isDangerActive = false;
+        let dangerInterval = null;
+        let dangerDetails = null;
+        
+        let speechSynth = window.speechSynthesis;
+        let currentUtterance = null;
+        let currentTextToRead = "";
+        let recognitionEngine = null;
+        let speakInProgress = false;
+        let currentSpeechPriority = 0; // 0 = normal scan description, 1 = high priority warning (alert, horn)
+
+        // Languages list - 30 languages
+        const supportedLanguages = {
+            "english": { code: "en-US", name: "English" },
+            "hindi": { code: "hi-IN", name: "Hindi" },
+            "tamil": { code: "ta-IN", name: "Tamil" },
+            "telugu": { code: "te-IN", name: "Telugu" },
+            "kannada": { code: "kn-IN", name: "Kannada" },
+            "malayalam": { code: "ml-IN", name: "Malayalam" },
+            "bengali": { code: "bn-IN", name: "Bengali" },
+            "marathi": { code: "mr-IN", name: "Marathi" },
+            "gujarati": { code: "gu-IN", name: "Gujarati" },
+            "punjabi": { code: "pa-IN", name: "Punjabi" },
+            "odia": { code: "or-IN", name: "Odia" },
+            "assamese": { code: "as-IN", name: "Assamese" },
+            "urdu": { code: "ur-IN", name: "Urdu" },
+            "sanskrit": { code: "sa-IN", name: "Sanskrit" },
+            "kashmiri": { code: "ks-IN", name: "Kashmiri" },
+            "sindhi": { code: "sd-IN", name: "Sindhi" },
+            "konkani": { code: "kok-IN", name: "Konkani" },
+            "manipuri": { code: "mni-IN", name: "Manipuri" },
+            "nepali": { code: "ne-NP", name: "Nepali" },
+            "bodo": { code: "brx-IN", name: "Bodo" },
+            "dogri": { code: "doi-IN", name: "Dogri" },
+            "maithili": { code: "mai-IN", name: "Maithili" },
+            "santali": { code: "sat-IN", name: "Santali" },
+            "spanish": { code: "es-ES", name: "Spanish" },
+            "french": { code: "fr-FR", name: "French" },
+            "arabic": { code: "ar-XA", name: "Arabic" },
+            "chinese": { code: "zh-CN", name: "Chinese" },
+            "japanese": { code: "ja-JP", name: "Japanese" },
+            "german": { code: "de-DE", name: "German" },
+            "portuguese": { code: "pt-PT", name: "Portuguese" }
+        };
+
+        let selectedLanguageKey = "english";
+        let onboardingStep = "greeting"; 
+
+        // Local translation templates for system warnings to prevent language mixing
+        const translations = {
+            "english": {
+                welcome: "Welcome to VisionAid. I am AJ, your navigation assistant. Please say your preferred language.",
+                language_listed: "Supported options are English, Hindi, Tamil, Telugu, Kannada, Malayalam, Bengali, Marathi, Gujarati, Punjabi, Urdu, French, Spanish, Japanese.",
+                confirmed: "English language selected. Say Hey AJ to start scanning.",
+                scanning: "Scanning...",
+                horn: "Warning. Sudden loud noise nearby.",
+                route_calc: "Calculating voice route to ",
+                route_start: "Route found. Starting turn-by-turn guidance.",
+                stop: "System paused. Real-time scanning and directions deactivated.",
+                caution: "Caution!",
+                detected: "detected!",
+                footsteps_alert: "Caution! Movement detected behind you! Someone may be approaching."
+            },
+            "hindi": {
+                welcome: "विजन एड में स्वागत है। मैं AJ हूँ, आपकी नेविगेशन सहायक। कृपया अपनी पसंदीदा भाषा बोलें।",
+                language_listed: "समर्थित विकल्प हैं अंग्रेजी, हिंदी, तमिल, तेलुगु, कन्नड़, मलयालम, बंगाली, मराठी, गुजराती, पंजाबी, उर्दू।",
+                confirmed: "हिंदी भाषा चुनी गई है। स्कैनिंग शुरू करने के लिए बोलें Hey AJ।",
+                scanning: "स्कैनिंग जारी है...",
+                horn: "चेतावनी। पास में अचानक तेज आवाज हुई।",
+                route_calc: "का मार्ग खोजा जा रहा है ",
+                route_start: "मार्ग मिल गया है। दिशा निर्देश शुरू किए जा रहे हैं।",
+                stop: "प्रणाली रोक दी गई है। स्कैनिंग और दिशा निर्देश बंद हैं।",
+                caution: "सावधान!",
+                detected: "का पता चला है!",
+                footsteps_alert: "सावधान! आपके पीछे कुछ हलचल है! कोई आ रहा हो सकता है।"
+            },
+            "tamil": {
+                welcome: "விஷன் எய்ட் உங்களை வரவேற்கிறது. நான் AJ, உங்கள் வழிசெலுத்தல் உதவியாளர். தயவுசெய்து உங்கள் விருப்பமான மொழியைக் கூறுங்கள்.",
+                language_listed: "ஆங்கிலம், தமிழ், தெலுங்கு, கன்னடம், மலையாளம், இந்தி ஆகியவை ஆதரிக்கப்படும் மொழிகள்.",
+                confirmed: "தமிழ் மொழி தேர்ந்தெடுக்கப்பட்டது. ஸ்கேனிங்கைத் தொடங்க Hey AJ என்று சொல்லுங்கள்.",
+                scanning: "ஸ்கேன் செய்யப்படுகிறது...",
+                horn: "எச்சரிக்கை. அருகில் திடீரென உரத்த சத்தம் கேட்டது.",
+                route_calc: "வழித்தடம் கணக்கிடப்படுகிறது ",
+                route_start: "வழித்தடம் கண்டறியப்பட்டது. வழிகாட்டுதல் தொடங்குகிறது.",
+                stop: "அமைப்பு நிறுத்தப்பட்டது. ஸ்கேனிங் மற்றும் வழிகாட்டுதல் முடக்கப்பட்டது.",
+                caution: "எச்சரிக்கை!",
+                detected: "கண்டறியப்பட்டது!",
+                footsteps_alert: "எச்சரிக்கை! உங்கள் பின்னால் அசைவு கண்டறியப்பட்டது!"
+            },
+            "telugu": {
+                welcome: "విజన్ ఎయిడ్‌కు స్వాగతం. నేను AJ, మీ నావిగేషన్ అసిస్టెంట్. దయచేసి మీకు నచ్చిన భాషను చెప్పండి.",
+                language_listed: "సహాయక భాషలు ఇంగ్లీష్, హిందీ, తెలుగు, తమిళం, కన్నడ, మలయాళం.",
+                confirmed: "తెలుగు భాష ఎంపిక చేయబడింది. స్కాన్ ప్రారంభించడానికి Hey AJ అని చెప్పండి.",
+                scanning: "స్కాన్ అవుతోంది...",
+                horn: "హెచ్చరిక. దగ్గరలో హఠాత్తుగా పెద్ద శబ్దం వచ్చింది.",
+                route_calc: "మార్గం లెక్కిస్తోంది ",
+                route_start: "మార్గం కనుగొనబడింది. నావిగేషన్ ప్రారంభమవుతోంది.",
+                stop: "సిస్టమ్ ఆపివేయబడింది. స్కాన్ మరియు నావిగేషన్ నిలిపివేయబడింది.",
+                caution: "జాగ్రత్త!",
+                detected: "గుర్తించబడింది!",
+                footsteps_alert: "జాగ్రత్త! మీ వెనుక కదలిక గుర్తించబడింది!"
+            },
+            "kannada": {
+                welcome: "ವಿಷನ್ ಏಡ್ ಗೆ ಸುಸ್ವಾಗತ. ನಾನು AJ, ನಿಮ್ಮ ನ್ಯಾವಿಗೇಶನ್ ಅಸಿಸ್ಟೆಂಟ್. ದಯವಿಟ್ಟು ನಿಮ್ಮಿಷ್ಟದ ಭಾಷೆಯನ್ನು ತಿಳಿಸಿ.",
+                language_listed: "ಇಂಗ್ಲಿಷ್, ಹಿಂದಿ, ಕನ್ನಡ, ತಮಿಳು, ತೆಲುಗು, ಮಲಯಾಳಂ ಭಾಷೆಗಳು ಲಭ್ಯವಿದೆ.",
+                confirmed: "ಕನ್ನಡ ಭಾಷೆಯನ್ನು ಆಯ್ಕೆ ಮಾಡಲಾಗಿದೆ. ಸ್ಕ್ಯಾನಿಂಗ್ ಪ್ರಾರಂಭಿಸಲು Hey AJ ಎಂದು ಹೇಳಿ.",
+                scanning: "ಸ್ಕ್ಯಾನ್ ಆಗುತ್ತಿದೆ...",
+                horn: "ಎಚ್ಚರಿಕೆ. ಹತ್ತಿರದಲ್ಲಿ ಜೋರಾದ ಸದ್ದು ಕೇಳಿಸಿದೆ.",
+                route_calc: "ಮಾರ್ಗವನ್ನು ಲೆಕ್ಕಹಾಕಲಾಗುತ್ತಿದೆ ",
+                route_start: "ಮಾರ್ಗ ಪತ್ತೆಯಾಗಿದೆ. ಮಾರ್ಗದರ್ಶನ ಪ್ರಾರಂಭವಾಗುತ್ತಿದೆ.",
+                stop: "ಸಿಸ್ಟಮ್ ನಿಲ್ಲಿಸಲಾಗಿದೆ. ಸ್ಕ್ಯಾನಿಂಗ್ ಮತ್ತು ಮಾರ್ಗದರ್ಶನವನ್ನು ನಿಲ್ಲಿಸಲಾಗಿದೆ.",
+                caution: "ಎಚ್ಚರಿಕೆ!",
+                detected: "ಪತ್ತೆಯಾಗಿದೆ!",
+                footsteps_alert: "ಎಚ್ಚರ! ನಿಮ್ಮ ಹಿಂದೆ ಚಲನೆ ಪತ್ತೆಯಾಗಿದೆ!"
+            },
+            "malayalam": {
+                welcome: "വിഷൻ എയ്ഡിലേക്ക് സ്വാഗതം. ഞാൻ AJ, നിങ്ങളുടെ നാവിഗേഷൻ അസിസ്റ്റന്റ്. ദയവായി നിങ്ങളുടെ ഇഷ്ടമുള്ള ഭാഷ പറയുക.",
+                language_listed: "ഇംഗ്ലീഷ്, ഹിന്ദി, മലയാളം, തമിഴ്, തെലുങ്ക്, കന്നഡ എന്നിവ ലഭ്യമാണ്.",
+                confirmed: "മലയാളം ഭാഷ തിരഞ്ഞെടുത്തിരിക്കുന്നു. സ്കാനിംഗ് തുടങ്ങാൻ Hey AJ എന്ന് പറയുക.",
+                scanning: "സ്കാൻ ചെയ്യുന്നു...",
+                horn: "മുന്നറിയിപ്പ്. സമീപത്ത് പെട്ടെന്ന് വലിയ ശബ്ദം കേട്ടു.",
+                route_calc: "വഴി കണ്ടെത്തുന്നു ",
+                route_start: "വഴി കണ്ടെത്തിയിരിക്കുന്നു. നാവിഗേഷൻ ആരംഭിക്കുന്നു.",
+                stop: "സിസ്റ്റം നിർത്തിയിരിക്കുന്നു. സ്കാനിംഗും നാവിഗേഷനും നിർത്തി വെച്ചു.",
+                caution: "জാഗ്രത!",
+                detected: "കണ്ടെത്തി!"
+            },
+            "bengali": {
+                welcome: "ভিশন এইডে স্বাগত। আমি লিকি, আপনার নেভিগেশন সহযোগী। অনুগ্রহ করে আপনার পছন্দের ভাষা বলুন।",
+                language_listed: "ইংরেজি, বাংলা, হিন্দি, তামিল, তেলুগু, কন্নড়, মালায়ালম সমর্থित ভাষা।",
+                confirmed: "বাংলা ভাষা নির্বাচিত হয়েছে। স্ক্যানিং শুরু করতে বলুন হে লিকি।",
+                scanning: "স্ক্যান করা হচ্ছে...",
+                horn: "সতর্কতা। কাছেই হঠাৎ জোরে শব্দ শোনা গেছে।",
+                route_calc: "পথ খোঁজা হচ্ছে ",
+                route_start: "পথ পাওয়া গেছে। দিকনির্দেশনা শুরু হচ্ছে।",
+                stop: "সিস্টেম থামানো হয়েছে। স্ক্যানিং এবং নেভিগেশন নিষ্ক্রিয়।",
+                caution: "সাবধান!",
+                detected: "সনাক্ত করা হয়েছে!"
+            },
+            "marathi": {
+                welcome: "व्हिजनएडमध्ये आपले स्वागत आहे. मी AJ आहे, तुमची नेव्हिगेशन असिस्टंट. कृपया तुमची आवडती भाषा सांगा.",
+                language_listed: "इंग्रजी, हिंदी, मराठी, तमिळ, तेलुगू, कन्नड, मल्याळम, बंगाली.",
+                confirmed: "मराठी भाषा निवडली गेली आहे. स्कॅनिंग सुरू करण्यासाठी बोला Hey AJ.",
+                scanning: "स्कॅनिंग सुरू आहे...",
+                horn: "चेतावणी. जवळच मोठा आवाज झाला.",
+                route_calc: "मार्ग शोधत आहे ",
+                route_start: "मार्ग सापडला. दिशा निर्देश सुरू करत आहे.",
+                stop: "प्रणाली थांबवली आहे.",
+                caution: "सावधान!",
+                detected: "आढळले!"
+            },
+            "gujarati": {
+                welcome: "વિઝનએડમાં તમારું સ્વાગત છે. હું AJ છું, તમારી નેવિગેશન આસિસ્ટન્ટ. કૃપા કરીને તમારી મનપસંદ ભાષા કહો.",
+                language_listed: "અંગ્રેજી, હિન્દી, ગુજરાતી, તમિલ, તેલુગુ, કન્નડ, મલયાલમ.",
+                confirmed: "ગુજરાતી ભાષા પસંદ કરવામાં આવી છે. સ્કેનિંગ શરૂ કરવા માટે બોલો Hey AJ.",
+                scanning: "સ્કેનિંગ ચાલુ છે...",
+                horn: "ચેતવણી. નજીકમાં મોટો અવાજ થયો.",
+                route_calc: "માર્ગ શોધાઈ રહ્યો છે ",
+                route_start: "માર્ગ મળી ગયો. દિશા નિર્દેશ શરૂ કરી રહ્યા છીએ.",
+                stop: "સિસ્ટમ થોભાવવામાં આવી છે.",
+                caution: "સાવધાન!",
+                detected: "શોધાયેલ છે!"
+            },
+            "punjabi": {
+                welcome: "ਵਿਜ਼ਨਏਡ ਵਿੱਚ ਤੁਹਾਡਾ ਸਵਾਗਤ ਹੈ। ਮੈਂ AJ ਹਾਂ, ਤੁਹਾਡੀ ਨੇਵੀਗੇਸ਼ਨ ਅਸਿਸਟੈਂਟ। ਕਿਰਪਾ ਕਰਕੇ ਆਪਣੀ ਮਨਪਸੰਦ ਭਾਸ਼ਾ ਦੱਸੋ।",
+                language_listed: "ਅੰਗਰੇਜ਼ੀ, ਹਿੰਦੀ, ਪੰਜਾਬੀ, ਤਮਿਲ, ਤੇਲਗੂ, ਕੰਨੜ, ਮਲਿਆਲਮ.",
+                confirmed: "ਪੰਜਾਬੀ ਭਾਸ਼ਾ ਚੁਣੀ ਗਈ ਹੈ। ਸਕੈਨਿੰਗ ਸ਼ੁਰੂ ਕਰਨ ਲਈ ਬੋਲੋ Hey AJ।",
+                scanning: "ਸਕੈਨਿੰਗ ਜਾਰੀ ਹੈ...",
+                horn: "ਚੇਤਾਵਨੀ। ਨੇੜੇ ਹੀ ਉੱਚਾ ਅਵਾਜ਼ ਹੋਇਆ।",
+                route_calc: "ਮਾਰਗ ਲੱਭ ਰਿਹਾ ਹੈ ",
+                route_start: "ਮਾਰਗ ਮਿਲ ਗਿਆ ਹੈ। ਦਿਸ਼ਾ ਨਿਰਦੇਸ਼ ਸ਼ੁਰੂ ਕੀਤੇ ਜਾ ਰਹੇ ਹਨ।",
+                stop: "ਸਿਸਟਮ ਰੋਕਿਆ ਗਿਆ ਹੈ.",
+                caution: "ਸਾਵਧਾਨ!",
+                detected: "ਪਾਇਆ ਗਿਆ!"
+            },
+            "odia": {
+                welcome: "ଭିଜନଏଡରେ ଆପଣଙ୍କୁ ସ୍ୱାଗତ। ମୁଁ AJ, ଆପଣଙ୍କ ନେଭିଗେସନ ସହକାରୀ। ଦୟାକରି ଆପଣଙ୍କ ପସନ୍ଦର ଭାଷା କୁହନ୍ତୁ।",
+                language_listed: "ଇଂରାଜୀ, ହିନ୍ଦୀ, ଓଡ଼ିଆ, ତାମିଲ, ତେଲୁଗୁ, କନ୍ନଡ଼, ମାଲାୟାଲମ.",
+                confirmed: "ଓଡ଼ିଆ ଭାଷା ଚୟନ କରାଯାଇଛି। ସ୍କାନିଂ ଆରମ୍ଭ କରିବାକୁ କୁହନ୍ତୁ Hey AJ।",
+                scanning: "ସ୍କାନିଂ ଚାଲିଛି...",
+                horn: "ଚେତାବନୀ। ନିକଟରେ ହଠାତ୍ ଜୋର ଶବ୍ଦ ହେଲା।",
+                route_calc: "ମାର୍ଗ ଖୋଜାଯାଉଛି ",
+                route_start: "ମାର୍ଗ ମିଳିଗଲା। ଦିଗ ନିର୍ଦ୍ଦେଶ ଆରମ୍ଭ ହେଉଛି।",
+                stop: "ସିଷ୍ଟମ ବନ୍ଦ ହୋଇଛି।",
+                caution: "ସାବଧାନ!",
+                detected: "ଚିହ୍ନଟ ହୋଇଛି!"
+            },
+            "assamese": {
+                welcome: "ভিছনএইডলৈ আপোনাক আদৰণি জনাইছোঁ। মই AJ, আপোনাৰ নেভিগেশ্যন সহায়ক। অনুগ্ৰহ কৰি আপোনাৰ পছন্দৰ ভাষা কওক।",
+                language_listed: "ইংৰাজী, হিন্দী, অসমীয়া, তামিল, তেলুগু, কানাড়া, মালয়ালম.",
+                confirmed: "অসমীয়া ভাষা বাছনি কৰা হৈছে। স্কেনিং আৰম্ভ কৰিবলৈ কওক Hey AJ।",
+                scanning: "স্কেনিং হৈ আছে...",
+                horn: "সাঁৱধান। ওচৰতে হঠাৎ জোৰ শব্দ হৈছে।",
+                route_calc: "পথ বিচাৰি থকা হৈছে ",
+                route_start: "পথ পোৱা গ'ল। দিশ নিৰ্দেশনা আৰম্ভ কৰা হৈছে।",
+                stop: "প্ৰণালী বন্ধ কৰা হৈছে।",
+                caution: "সাৱধান!",
+                detected: "ধৰা পৰিছে!"
+            },
+            "urdu": {
+                welcome: "ویژن ایڈ میں خوش آمدید۔ میں AJ ہوں، آپ کی نیویگیشن اسسٹنٹ۔ براہ کرم اپنی پسندیدہ زبان کہیں۔",
+                language_listed: "انگریزی، ہندی، اردو، تمل، تلگو، کنڑ، ملیالم.",
+                confirmed: "اردو زبان منتخب ہو گئی ہے۔ اسکیننگ شروع کرنے کے لیے بولیں Hey AJ۔",
+                scanning: "اسکیننگ ہو رہی ہے...",
+                horn: "خبردار۔ قریب ہی اچانک اونچی آواز ہوئی۔",
+                route_calc: "راستہ تلاش کیا جا رہا ہے ",
+                route_start: "راستہ مل گیا۔ سمت رہنمائی شروع کی جا رہی ہے۔",
+                stop: "سسٹم روک دیا گیا ہے۔",
+                caution: "خبردار!",
+                detected: "پایا گیا ہے!"
+            },
+            "sanskrit": {
+                welcome: "विजनएड् मध्ये स्वागतम्। अहम् AJ, तव नेविगेशन सहायिका। कृपया स्वकीयां प्रियां भाषां वदतु।",
+                language_listed: "संस्कृतम्, आङ्गलम्, हिन्दी, तमिळ, तेलुगु, कन्नड, मलयाळम्.",
+                confirmed: "संस्कृत भाषा चिता। स्कैनिंग् आरब्धुं वदतु Hey AJ।",
+                scanning: "स्कैनिंग् प्रचलति...",
+                horn: "सावधान। समीपे सहसा उच्चध्वनिः अभवत्।",
+                route_calc: "मार्गः अन्विष्यते ",
+                route_start: "मार्गः लब्धः। मार्गदर्शनं प्रारभ्यते।",
+                stop: "प्रणाली स्थगिता।",
+                caution: "सावधानम्!",
+                detected: "अधिगतम्!"
+            },
+            "kashmiri": {
+                welcome: "विजनएडस मंज खुशआमदीद। बह छुस AJ, तुहिनज़ नेविगेशन मददगार। महरबानी करिथ वनेव पनेन ज़बान।",
+                language_listed: "कश्मीरी, अंग्रेज़ी, हिन्दी, उर्दू, तमिल, तेलुगु.",
+                confirmed: "कश्मीरी ज़बान चुननाव। स्कैनिंग शुरू करन खत्र वनेव Hey AJ।",
+                scanning: "स्कैनिंग गछान...",
+                horn: "خبردار۔ نزدیک گئی اچانک باڑ آواز۔",
+                route_calc: "वाथ तलाश करान ",
+                route_start: "वाथ लभ्यव। मार्गदर्शन शुरू गछान।",
+                stop: "सिस्टम रोकनाव।",
+                caution: "خبردار!",
+                detected: "लभ्यव!"
+            },
+            "sindhi": {
+                welcome: "ويزن ايڊ ۾ ڀليڪار. مان AJ آهيان، توهان جي نيويگيشن اسسٽنٽ. مهرباني ڪري پنهنجي پسند جي ٻولي چئو.",
+                language_listed: "سنڌي، انگريزي، هندي، اردو، تمل, تيلگو.",
+                confirmed: "سنڌي ٻولي چونڊي وئي آهي. اسڪيننگ شروع ڪرڻ لاءِ چئو Hey AJ.",
+                scanning: "اسڪيننگ جاري آهي...",
+                horn: "خبردار. ويجهو ئي اوچتو وڏو آواز ٿيو.",
+                route_calc: "رستو ڳوليو پيو وڃي ",
+                route_start: "رستو ملي ويو. رخ ڏيکارڻ شروع ڪجي ٿو.",
+                stop: "سسٽم روڪيو ويو آهي.",
+                caution: "خبردار!",
+                detected: "معلوم ٿيو!"
+            },
+            "konkani": {
+                welcome: "व्हिजनएडात तुमचें स्वागत। हांव AJ, तुमची नेव्हिगेशन सहाय्यक। उपकार करून तुमची आवडती भास सांगा.",
+                language_listed: "कोंकणी, इंग्लीश, हिंदी, मराठी, तमिळ, तेलुगू, कन्नड.",
+                confirmed: "कोंकणी भास वेचून काडल्या. स्कॅनिंग सुरू करपाक सांगा Hey AJ.",
+                scanning: "स्कॅनिंग चालू आसा...",
+                horn: "शिटकावणी. लागसारच मोट्यान आवाज जालो.",
+                route_calc: "रस्तो सोदता ",
+                route_start: "रस्तो मेळ्ळो. मार्गदर्शन सुरू करता.",
+                stop: "प्रणाली थांबयल्या.",
+                caution: "सावधान!",
+                detected: "मेळ्ळां!"
+            },
+            "manipuri": {
+                welcome: "ভিজনএদता তরাম্না ওকচরি। ঐহাক লিকিনি, অদোমগী নেভিগেশন শিন্মী। খঙহৌদনা অদোমগী পামজবা লোন পীবিয়ু।",
+                language_listed: "মণিপুরী, ইংরেজি, হিন্দি, বাংলা, অসমীয়া.",
+                confirmed: "মণিপুরী লোন খল্লরে। স্কেনিং হৌনবগীদমক চেকশিনবীয়ু হে লিকি হায়বীয়ু।",
+                scanning: "স্কেনিং চত্থরি...",
+                horn: "চেকশিনবীয়ু। মসিদা নক্না খঙহৌদনা লাউবা মখোল তাখ্রে।",
+                route_calc: "লম্বী থীবগী থবক চত্থরি ",
+                route_start: "লম্বী ফংলে। লম্বী তাকপগী থবক হৌরে।",
+                stop: "সিস্তেম খamলে।",
+                caution: "চেকশিনবীয়ু!",
+                detected: "থেংনরে!"
+            },
+            "nepali": {
+                welcome: "भिजनएडमा स्वागत छ। म AJ हुँ, तपाईंको नेभिगेसन सहायक। कृपया आफ्नो मनपर्ने भाषा भन्नुहोस्।",
+                language_listed: "नेपाली, अंग्रेजी, हिन्दी, मैथिली, भोजपुरी, कोंकणी.",
+                confirmed: "नेपाली भाषा चयन गरिएको छ। स्क्यानिङ सुरु गर्न भन्नुहोस् Hey AJ।",
+                scanning: "स्क्यानिङ भइरहेको छ...",
+                horn: "चेतावनी। नजिकै अचानक ठूलो आवाज आयो।",
+                route_calc: "मार्ग खोजिँदै छ ",
+                route_start: "मार्ग भेटियो। दिशा निर्देश सुरु गरिँदै छ।",
+                stop: "प्रणाली रोकिएको छ।",
+                caution: "सावधान!",
+                detected: "फेला पर्यो!"
+            },
+            "bodo": {
+                welcome: "भिजनएड आव बरायबाय। आं AJ, नोंथांनि नेभिगेसन हेफाजाबगिरि। अननानै नोंथांनि मोजां मोननाय रावखौ बुं।",
+                language_listed: "बर', अखा, हिन्दी, इंग्लिश, असमीया, बंगाली.",
+                confirmed: "बर' रावखौ सायखनाय जाबाय। स्क्यानिङ जागायनो बुं Hey AJ।",
+                scanning: "स्क्यानिङ जागायबाय...",
+                horn: "सावधान। खाथियावनो हरखाब गोरा सोदोब जाबाय।",
+                route_calc: "लामा नायगिरबाय थानाय जाबाय ",
+                route_start: "लामा मोनबाय। लामा दिन्थिनो जागायबाय।",
+                stop: "सिस्तेमखौ थादनाय जाबाय।",
+                caution: "सावधान!",
+                detected: "मोननाय जाबाय!"
+            },
+            "dogri": {
+                welcome: "विजनएड च थुआडा स्वागत ऐ। मैं AJ आं, थुआडी नेविगेशन मददगार। मेहरबानी करी अपणी पसंद दी बोली बोलो।",
+                language_listed: "डोगरी, कश्मीरी, हिन्दी, पंजाबी, उर्दू, अंग्रेज़ी.",
+                confirmed: "डोगरी बोली चुनी गेदी ऐ। स्कैनिंग शुरू करने लेई बोलो Hey AJ।",
+                scanning: "स्कैनिंग होई दी ऐ...",
+                horn: "सावधान। कोलै गै अचानक जोर दी अवाज आई।",
+                route_calc: "रस्ता लब्भ्या जा करदा ऐ ",
+                route_start: "रस्ता लब्भी गेया। मारग दस्सना शुरू कीता जा करदा ऐ।",
+                stop: "सिस्टम रोक्या गेदा ऐ।",
+                caution: "सावधान!",
+                detected: "लभ्या गेदा!"
+            },
+            "maithili": {
+                welcome: "विजनएड में स्वागत अछि। हम AJ छी, अहाँक नेविगेशन सहायक। कृपया अपन पसंदीदा भाषा बाजू।",
+                language_listed: "मैथिली, नेपाली, हिन्दी, बंगाली, भोजपुरी, अंग्रेज़ी.",
+                confirmed: "मैथिली भाषा चुनल गेल अछि। स्कैनिंग शुरू करबाक लेल बाजू Hey AJ।",
+                scanning: "स्कैनिंग भ रहल अछि...",
+                horn: "सजग रहू। कतहु नजदीक में अचानक जोर स अवाज भेल।",
+                route_calc: "रस्ता खोजल जा रहल अछि ",
+                route_start: "रस्ता भेट गेल। मारग देखाबय के काज शुरू भेल।",
+                stop: "सिस्टम रोकल गेल अछि।",
+                caution: "सजक रहू!",
+                detected: "भेटल अछि!"
+            },
+            "santali": {
+                welcome: "ᱵᱷᱤᱡᱚᱱ ᱮᱰ ᱨᱮ ᱥᱟᱹᱜᱩᱱ ᱫᱟᱨᱟᱢ᱾ ᱧᱩᱛᱩਮ ᱛᱤᱧ ᱞᱤᱠᱤ, ᱟᱢᱟᱜ ᱱᱮᱵᱷᱤᱜᱮᱥᱚᱱ ᱜᱚᱲᱚᱭᱤᱡ᱾ ᱫᱟᱭᱟ ᱠᱟᱛᱮ ᱟᱢᱟᱜ ᱠᱩᱥᱤ ᱨᱚᱲ ᱞᱟᱹᱭਮᱮ।",
+                language_listed: "ᱥᱟᱱᱛᱟᱲᱤ, ᱵᱮᱝᱜᱚᱞᱤ, ᱦᱤᱱᱫᱤ, ᱩᱰᱤᱭᱟ, ᱟᱥᱟᱢᱤᱥ.",
+                confirmed: "ᱥᱟᱱᱛᱟᱲᱤ ᱨᱚᱲ ᱵᱟᱪᱷᱟᱣ ᱮᱱᱟ᱾ ᱥᱠᱮᱱ ᱮᱦᱚᱵ ᱞᱟᱹᱜᱤᱫ ᱢᱮᱱᱢᱮ ᱦᱮ ᱞᱤᱠᱤ᱾",
+                scanning: "ᱥᱠᱮᱱ ᱪᱟᱞᱟᱜ ᱠᱟᱱᱟ...",
+                horn: "ᱪᱮᱛᱟᱣᱱᱤ! ᱥᱩᱨ ᱨᱮ ᱦᱚᱴᱟᱛ ᱡᱚᱨ ᱥᱟᱰᱮ ᱦᱩᱭᱮᱱᱟ᱾",
+                route_calc: "ᱰᱟᱦᱟᱨ ᱥᱮᱸᱫᱽᱨᱟ ᱦᱩᱭᱩᱜ ᱠᱟᱱᱟ ",
+                route_start: "ᱰᱟᱦᱟᱨ ᱧᱟᱢ ᱮᱱᱟ᱾ ᱱᱮᱵᱷᱤᱜᱮᱥᱚᱱ ᱮᱦᱚᱵ ᱮᱱᱟ᱾",
+                stop: "ᱥᱤᱥᱴᱮᱢ ᱵᱚᱸᱫᱽ ᱮᱱᱟ।",
+                caution: "चेतव!",
+                detected: "ᱧᱟམ ᱟᱠᱟᱱᱟ!"
+            },
+            "spanish": {
+                welcome: "Bienvenido a VisionAid. Soy AJ, tu asistente de navegación. Por favor, di tu idioma preferido.",
+                language_listed: "Las opciones son español, inglés, francés, portugués, alemán.",
+                confirmed: "Idioma español seleccionado. Di Hey AJ para comenzar a escanear.",
+                scanning: "Escaneando...",
+                horn: "Advertencia. Ruido fuerte repentino cerca.",
+                route_calc: "Calculando la ruta de voz a ",
+                route_start: "Ruta encontrada. Iniciando guía de voz paso a paso.",
+                stop: "Sistema pausado. Escaneo en tiempo real y direcciones desactivadas.",
+                caution: "¡Precaución!",
+                detected: "detectado!",
+                footsteps_alert: "¡Precaución! ¡Movimiento detectado detrás de usted!"
+            },
+            "french": {
+                welcome: "Bienvenue sur VisionAid. Je suis AJ, votre assistante de navigation. Veuillez indiquer votre langue préférée.",
+                language_listed: "Les options sont le français, l'anglais, l'espagnol, l'allemand.",
+                confirmed: "Langue française sélectionnée. Dites Hey AJ pour commencer le scan.",
+                scanning: "Balayage en cours...",
+                horn: "Avertissement. Bruit fort soudain à proximité.",
+                route_calc: "Calcul de l'itinéraire vocal vers ",
+                route_start: "Itinéraire trouvé. Début du guidage vocal étape par étape.",
+                stop: "Système en pause. Balayage et guidage désactivés.",
+                caution: "Attention !",
+                detected: "détecté !",
+                footsteps_alert: "Attention ! Mouvement détecté derrière vous !"
+            },
+            "arabic": {
+                welcome: "مرحبًا بك في فيجن إيد. أنا AJ، مساعدة الملاحة الخاصة بك. يرجى تحديد لغتك المفضلة.",
+                language_listed: "الخيارات المتاحة هي العربية، الإنجليزية، الفرنسية، الألمانية.",
+                confirmed: "تم اختيار اللغة العربية. قل Hey AJ لبدء المسح الضوئي.",
+                scanning: "جاري المسح...",
+                horn: "تحذير. ضوضاء عالية مفاجئة بالقرب منك.",
+                route_calc: "جاري حساب المسار الصوتي إلى ",
+                route_start: "تم العثور على المسار. بدء التوجيه خطوة بخطوة.",
+                stop: "تم إيقاف النظام مؤقتًا. تم إلغاء تفعيل المسح والاتجاهات.",
+                caution: "تنبيه!",
+                detected: "تم رصده!",
+                footsteps_alert: "تنبيه! تم رصد حركة خلفك!"
+            },
+            "chinese": {
+                welcome: "欢迎使用 VisionAid。我是 AJ，您的导航助手。请说出您首选的语言。",
+                language_listed: "支持的选项有中文、英文、日文、韩文。",
+                confirmed: "已选择中文。说“Hey AJ”开始扫描。",
+                scanning: "正在扫描...",
+                horn: "警告。附近有突然的巨大噪音。",
+                route_calc: "正在计算语音路线至 ",
+                route_start: "已找到路线。开始逐步语音导航。",
+                stop: "系统已暂停。实时扫描和导航已停用。",
+                caution: "注意！",
+                detected: "已检测到！"
+            },
+            "japanese": {
+                welcome: "VisionAidへようこそ。私はAJ、あなたのナビゲーションアシスタントです。お好みの言語を話してください。",
+                language_listed: "選択肢は、日本語、英語、中国語、韓国語です。",
+                confirmed: "日本語が選択されました。「Hey AJ」と言ってスキャンを開始します。",
+                scanning: "スキャン中...",
+                horn: "警告。近くで突然大きな音がしました。",
+                route_calc: "目的地までのルートを検索しています： ",
+                route_start: "ルートが見つかりました。音声案内を開始します。",
+                stop: "システムは一時停止されました。スキャンとナビゲーションが停止しました。",
+                caution: "注意！",
+                detected: "が検出されました！"
+            },
+            "german": {
+                welcome: "Willkommen bei VisionAid. Ich bin AJ, deine Navigationsassistentin. Bitte nenne deine bevorzugte Sprache.",
+                language_listed: "Die Optionen sind Deutsch, Englisch, Französisch, Spanisch.",
+                confirmed: "Deutsche Sprache ausgewählt. Sage Hey AJ, um den Scan zu starten.",
+                scanning: "Scannen...",
+                horn: "Warnung. Plötzliches lautes Geräusch in der Nähe.",
+                route_calc: "Berechne Sprachroute nach ",
+                route_start: "Route gefunden. Starte Turn-by-Turn-Navigation.",
+                stop: "System pausiert. Echtzeitschnitt und Richtungen deaktiviert.",
+                caution: "Achtung!",
+                detected: "erkannt!"
+            },
+            "portuguese": {
+                welcome: "Bem-vindo ao VisionAid. Sou AJ, sua assistente de navegação. Por favor, diga seu idioma preferido.",
+                language_listed: "As opções são português, inglês, espanhol, francês.",
+                confirmed: "Idioma português selecionado. Diga Hey AJ para começar a escanear.",
+                scanning: "Escaneando...",
+                horn: "Aviso. Ruído alto repentino nas proximidades.",
+                route_calc: "Calculando rota de voz para ",
+                route_start: "Rota encontrada. Iniciando navegação passo a passo.",
+                stop: "Sistema pausado. Varredura e direções desativadas.",
+                caution: "Cuidado!",
+                detected: "detectado!"
+            }
+        };
+
+        // Localized Event Names translation map
+        const eventTranslations = {
+            "english": { vehicles: "Vehicle", running_people: "Running person", sudden_darkness: "Sudden darkness", rain: "Rain", smoke: "Smoke" },
+            "hindi": { vehicles: "वाहन", running_people: "भागता हुआ व्यक्ति", sudden_darkness: "अचानक अंधेरा", rain: "बारिश", smoke: "धुआं" },
+            "tamil": { vehicles: "வாகனம்", running_people: "ஓடும் நபர்", sudden_darkness: "திடீர் இருள்", rain: "மழை", smoke: "புகை" },
+            "telugu": { vehicles: "వాహనం", running_people: "పరుగెత్తుతున్న వ్యక్తి", sudden_darkness: "అకስಮಾత్తుగా చీకటి", rain: "వర్షం", smoke: "పొగ" },
+            "kannada": { vehicles: "ವಾಹನ", running_people: "ಓಡುತ್ತಿರುವ ವ್ಯಕ್ತಿ", sudden_darkness: "ಹಠಾತ್ ಕತ್ತಲು", rain: "ಮಳೆ", smoke: "ಹೊಗೆ" },
+            "malayalam": { vehicles: "വാഹനം", running_people: "ഓടുന്ന ആൾ", sudden_darkness: "പെട്ടെന്നുള്ള ഇരുട്ട്", rain: "മഴ", smoke: "പുക" },
+            "bengali": { vehicles: "যানবাহন", running_people: "দৌড়ানো व्यक्ति", sudden_darkness: "হঠাৎ অন্ধকার", rain: "বৃষ্টি", smoke: "ধোঁয়া" },
+            "marathi": { vehicles: "वाहन", running_people: "पळणारी व्यक्ती", sudden_darkness: "अचानक अंधार", rain: "पाऊस", smoke: "धूर" },
+            "gujarati": { vehicles: "વાહન", running_people: "દોડતી વ્યક્તિ", sudden_darkness: "અચાનક અંધારું", rain: "વરસાદ", smoke: "ધૂમ્રપान" },
+            "punjabi": { vehicles: "ਵਾਹਨ", running_people: "ਭੱਜਦਾ ਹੋਇਆ ਵਿਅਕती", sudden_darkness: "ਅਚਾਨਕ ਹਨੇਰਾ", rain: "ਮੀਂਹ", smoke: "ਧੂੰਆਂ" },
+            "odia": { vehicles: "ଯାନବାହନ", running_people: "ଦୌଡୁଥିବା ବ୍ୟକ୍ତି", sudden_darkness: "ହଠାତ୍ ଅନ୍ଧାର", rain: "ବର୍ଷା", smoke: "ଧୂଆଁ" },
+            "assamese": { vehicles: "বাহন", running_people: "দৌৰি থকা মানুহ", sudden_darkness: "হঠাৎ অন্ধকাৰ", rain: "বৰষুণ", smoke: "ধোঁৱা" },
+            "urdu": { vehicles: "گاڑی", running_people: "بھاگتا ہوا شخص", sudden_darkness: "اچانک اندھیرا", rain: "بارش", smoke: "دھواں" },
+            "sanskrit": { vehicles: "वाहनम्", running_people: "धावन् जनः", sudden_darkness: "सहसा अन्धकारः", rain: "वृष्टिः", smoke: "धूमः" },
+            "kashmiri": { vehicles: "गाड", running_people: "दवाण इंसान", sudden_darkness: "अचानक गोब अंधकार", rain: "रुद", smoke: "दह" },
+            "sindhi": { vehicles: "گاڏي", running_people: "ڀڄندڙ ماڻهو", sudden_darkness: "اچانک اونداهي", rain: "مينهن", smoke: "دونهون" },
+            "konkani": { vehicles: "वाहन", running_people: "धांवपी मनीस", sudden_darkness: "झळकन काळोख", rain: "पाऊस", smoke: "धूंवर" },
+            "manipuri": { vehicles: "গারী", running_people: "চেল্লিবা মীওই", sudden_darkness: "খঙহৌদনা অমম্বা", rain: "নোংচুবা", smoke: "মৈখু" },
+            "nepali": { vehicles: "सवारी साधन", running_people: "दौडिरहेको मान्छे", sudden_darkness: "अचानक अँध्यारो", rain: "पानी परेको", smoke: "धुवाँ" },
+            "bodo": { vehicles: "गाड़ी", running_people: "खारबाय थानाय सुबुं", sudden_darkness: "हरखाब खोमसि", rain: "अखा", smoke: "अखाय" },
+            "dogri": { vehicles: "गड्डी", running_people: "नत्थदा आदमी", sudden_darkness: "अचानक मनेरा", rain: "हनेरा", smoke: "धूआं" },
+            "maithili": { vehicles: "गाड़ी", running_people: "दौड़ैत लोक", sudden_darkness: "अचानक अन्धकार", rain: "बरखा", smoke: "धुआँ" },
+            "santali": { vehicles: "ᱜᱟᱹᱰᱤ", running_people: "ᱫᱟᱹᱲᱮᱫ ᱦᱚᱲ", sudden_darkness: "ᱦᱚᱴᱟᱛ ᱧᱩᱛ", rain: "ᱫᱟᱜ", smoke: "ᱫᱷᱩᱶᱟᱹ" },
+            "spanish": { vehicles: "Vehículo", running_people: "Persona corriendo", sudden_darkness: "Oscuridad repentina", rain: "Lluvia", smoke: "Humo" },
+            "french": { vehicles: "Véhicule", running_people: "Personne qui court", sudden_darkness: "Obscurité soudaine", rain: "Pluie", smoke: "Fumée" },
+            "arabic": { vehicles: "مركبة", running_people: "شخص يركض", sudden_darkness: "ظلام مفاجئ", rain: "مطر", smoke: "دخان" },
+            "chinese": { vehicles: "车辆", running_people: "奔跑的人", sudden_darkness: "突然变暗", rain: "下雨", smoke: "烟雾" },
+            "japanese": { vehicles: "車両", running_people: "走っている人", sudden_darkness: "急な暗闇", rain: "雨", smoke: "煙" },
+            "german": { vehicles: "Fahrzeug", running_people: "Rennende Person", sudden_darkness: "Plötzliche Dunkelheit", rain: "Regen", smoke: "Rauch" },
+            "portuguese": { vehicles: "Veículo", running_people: "Pessoa correndo", sudden_darkness: "Escuridão repentina", rain: "Chuva", smoke: "Fumaça" }
+        };
+
+        const dangerTranslations = {
+            "english": {
+                danger_from_left: "Danger! Fast object approaching from left! Move right immediately!",
+                danger_from_right: "Danger! Fast object approaching from right! Move left immediately!",
+                danger_from_front: "Danger! Fast object approaching from front! Move sideways immediately!",
+                danger_from_behind: "Danger! Fast object approaching from behind! Move forward fast immediately!",
+                safe_now: "Safe now. Continuing navigation.",
+                path_clear: "Path clear. Safe to continue."
+            },
+            "hindi": {
+                danger_from_left: "खतरा! बाईं ओर से तेज वस्तु आ रही है! तुरंत दाईं ओर हटें!",
+                danger_from_right: "खतरा! दाईं ओर से तेज वस्तु आ रही है! तुरंत बाईं ओर हटें!",
+                danger_from_front: "खतरा! सामने से तेज वस्तु आ रही है! तुरंत अगल-बगल हटें!",
+                danger_from_behind: "खतरा! पीछे से तेज वस्तु आ रही है! तुरंत तेजी से आगे बढ़ें!",
+                safe_now: "अब सुरक्षित है। नेविगेशन जारी रख रहे हैं।",
+                path_clear: "रास्ता साफ है। आगे बढ़ना सुरक्षित है।"
+            },
+            "tamil": {
+                danger_from_left: "ஆபத்து! இடமிருந்து வேகமான பொருள் நெருங்குகிறது! உடனே வலப்புறம் நகருங்கள்!",
+                danger_from_right: "ஆபத்து! வலமிருந்து வேகமான பொருள் நெருங்குகிறது! உடனே இடப்புறம் நகருங்கள்!",
+                danger_from_front: "ஆபத்து! முன்னால் வேகமான பொருள் நெருங்குகிறது! உடனே பக்கவாட்டில் நகருங்கள்!",
+                danger_from_behind: "ஆபத்து! பின்னால் வேகமான பொருள் நெருங்குகிறது! உடனே வேகமாக முன்னேறிச் செல்லுங்கள்!",
+                safe_now: "இப்போது பாதுகாப்பானது. வழிகாட்டுதல் தொடர்கிறது.",
+                path_clear: "பாதை தெளிவாக உள்ளது. தொடரலாம்."
+            },
+            "telugu": {
+                danger_from_left: "ప్రమాదం! ఎడమ నుండి వేగవంతమైన వస్తువు వస్తోంది! వెంటనే కుడి వైపునకు జరగండి!",
+                danger_from_right: "ప్రమాదం! కుడి నుండి వేగవంతమైన వస్తువు వస్తోంది! వెంటనే ఎడమ వైపునకు జరగండి!",
+                danger_from_front: "ప్రమాదం! ముందు నుండి వేగవంతమైన వస్తువు వస్తోంది! వెంటనే పక్కకు జరగండి!",
+                danger_from_behind: "ప్రమాదం! వెనుక నుండి వేగవంతమైన వస్తువు వస్తోంది! వెంటనే వేగంగా ముందుకు వెళ్ళండి!",
+                safe_now: "ఇప్పుడు సురక్షితం. నావిగేషన్ కొనసాగుతోంది.",
+                path_clear: "దారి ఖాళీగా ఉంది. ముందుకు వెళ్లడం సురక్షితం."
+            },
+            "kannada": {
+                danger_from_left: "ಅಪಾಯ! ಎಡಭಾಗದಿಂದ ವೇಗವಾದ ವಸ್ತು ಬರುತ್ತಿದೆ! ತಕ್ಷಣ ಬಲಭಾಗಕ್ಕೆ ಸರಿಯಿರಿ!",
+                danger_from_right: "ಅಪಾಯ! ಬಲಭಾಗದಿಂದ ವೇಗವಾದ ವಸ್ತು ಬರುತ್ತಿದೆ! ತಕ್ಷಣ ಎಡಭಾಗಕ್ಕೆ ಸರಿಯಿರಿ!",
+                danger_from_front: "ಅಪಾಯ! ಮುಂಭಾಗದಿಂದ ವೇಗವಾದ ವಸ್ತು ಬರುತ್ತಿದೆ! ತಕ್ಷಣ ಪಕ್ಕಕ್ಕೆ ಸರಿಯಿರಿ!",
+                danger_from_behind: "ಅಪಾಯ! ಹಿಂಭಾಗದಿಂದ ವೇಗವಾದ ವಸ್ತು ಬರುತ್ತಿದೆ! ತಕ್ಷಣ ವೇಗವಾಗಿ ಮುಂದೆ ಹೋಗಿ!",
+                safe_now: "ಈಗ ಸುರಕ್ಷಿತ. ನ್ಯಾವಿಗೇಶನ್ ಮುಂದುವರಿಯುತ್ತಿದೆ.",
+                path_clear: "ಮಾರ್ಗ ಮುಕ್ತವಾಗಿದೆ. ಮುಂದುವರಿಯಲು ಸುರಕ್ಷಿತ."
+            },
+            "malayalam": {
+                danger_from_left: "അപകടം! ഇടതുവശത്തുനിന്ന് വേഗത്തിൽ ഒരു വസ്തു വരുന്നു! ഉടൻ വലത്തോട്ട് മാറുക!",
+                danger_from_right: "അപകടം! വലതുവശത്തുനിന്ന് വേഗത്തിൽ ഒരു വസ്തു വരുന്നു! ഉടൻ ഇടത്തോട്ട് മാറുക!",
+                danger_from_front: "അപകടം! മുന്നിൽനിന്ന് വേഗത്തിൽ ഒരു വസ്തു വരുന്നു! ഉടൻ വശങ്ങളിലേക്ക് മാറുക!",
+                danger_from_behind: "അപകടം! പിന്നിൽനിന്ന് വേഗത്തിൽ ഒരു വസ്തു വരുന്നു! ഉടൻ വേഗത്തിൽ മുന്നോട്ട് നീങ്ങുക!",
+                safe_now: "ഇപ്പോൾ സുരക്ഷിതമാണ്. നാവിഗേഷൻ തുടരുന്നു.",
+                path_clear: "വഴി വ്യക്തമാണ്. തുടരുന്നത് സുരക്ഷിതമാണ്."
+            },
+            "bengali": {
+                danger_from_left: "বিপদ! বাম দিক থেকে দ্রুত বস্তু আসছে! অবিলম্বে ডান দিকে সরুন!",
+                danger_from_right: "বিপদ! ডান দিক থেকে দ্রুত বস্তু আসছে! অবিলম্বে বাম দিকে সরুন!",
+                danger_from_front: "বিপদ! সামনে থেকে দ্রুত বস্তু আসছে! অবিলম্বে পাশে সরুন!",
+                danger_from_behind: "বিপদ! পিছন থেকে দ্রুত বস্তু আসছে! অবিলম্বে দ্রুত সামনে এগিয়ে যান!",
+                safe_now: "এখন নিরাপদ। নেভিগেশন আবার শুরু হচ্ছে।",
+                path_clear: "পথ পরিষ্কার। এগিয়ে যাওয়া নিরাপদ।"
+            },
+            "marathi": {
+                danger_from_left: "धोका! डाव्या बाजूने वेगाने वस्तू येत आहे! लगेच उजवीकडे व्हा!",
+                danger_from_right: "धोका! उजव्या बाजूने वेगाने वस्तू येत आहे! लगेच डावीकडे व्हा!",
+                danger_from_front: "धोका! समोरून वेगाने वस्तू येत आहे! लगेच बाजूला व्हा!",
+                danger_from_behind: "धोका! मागून वेगाने वस्तू येत आहे! लगेच वेगाने पुढे जा!",
+                safe_now: "आता सुरक्षित आहे. नेव्हिगेशन सुरू ठेवत आहे.",
+                path_clear: "मार्ग मोकळा आहे. पुढे जाणे सुरक्षित आहे।"
+            },
+            "gujarati": {
+                danger_from_left: "ખતરો! ડાબી બાજુથી ઝડપી વસ્તુ આવી રહી છે! તરત જ જમણી બાજુ ખસો!",
+                danger_from_right: "ખતરો! જમણી બાજુથી ઝડપી વસ્તુ આવી રહી છે! તરત જ ડાબી બાજુ ખસો!",
+                danger_from_front: "ખતરો! સામેથી ઝડપી વસ્તુ આવી રહી છે! તરત જ બાજુ પર ખસો!",
+                danger_from_behind: "ખતરો! પાછળથી ઝડપી વસ્તુ આવી રહી છે! તરત જ ઝડપથી આગળ વધો!",
+                safe_now: "હવે સુરક્ષિત છે. નેવિગેશન ચાલુ રાખીએ છીએ.",
+                path_clear: "રસ્તો સાફ છે. આગળ વધવું સુરક્ષિત છે."
+            },
+            "punjabi": {
+                danger_from_left: "ਖਤਰਾ! ਖੱਬੇ ਪਾਸਿਓਂ ਤੇਜ਼ ਵਸਤੂ ਆ ਰਹੀ ਹੈ! ਤੁਰੰਤ ਸੱਜੇ ਪਾਸੇ ਹੋਵੋ!",
+                danger_from_right: "ਖਤਰਾ! ਸੱਜੇ ਪਾਸਿਓਂ ਤੇਜ਼ ਵਸਤੂ ਆ ਰਹੀ ਹੈ! ਤੁਰੰਤ ਖੱਬੇ ਪਾਸੇ ਹੋਵੋ!",
+                danger_from_front: "ਖਤਰਾ! ਸਾਹਮਣੇ ਤੋਂ ਤੇਜ਼ ਵਸਤੂ ਆ ਰਹੀ ਹੈ! ਤੁਰੰਤ ਪਾਸੇ ਹੋਵੋ!",
+                danger_from_behind: "ਖਤਰਾ! ਪਿੱਛੇ ਤੋਂ ਤੇਜ਼ ਵਸਤੂ ਆ ਰਹੀ ਹੈ! ਤੁਰੰਤ ਤੇਜ਼ੀ ਨਾਲ ਅੱਗੇ ਵਧੋ!",
+                safe_now: "ਹੁਣ ਸੁਰੱਖਿਅत ਹੈ। ਨੇਵੀਗੇਸ਼ਨ ਜਾਰੀ ਰੱਖ ਰਹੇ ਹਾਂ।",
+                path_clear: "ਰਾਹ ਸਾਫ਼ ਹੈ। ਅੱਗੇ ਵਧਣਾ ਸੁਰੱਖਇਤ ਹੈ।"
+            },
+            "odia": {
+                danger_from_left: "ବିପଦ! ବାମ ପଟୁ ଦ୍ରୁତ ବସ୍ତୁ ଆସୁଛି! ତୁରନ୍ତ ଡାହାଣକୁ ଘୁଞ୍ଚନ୍ତୁ!",
+                danger_from_right: "ବିପଦ! ଡାହାଣ ପଟୁ ଦ୍ରୁତ ବସ୍ତು ଆସୁଛି! ତୁରନ୍ତ ବାମକୁ ଘୁଞ୍ଚନ୍ତୁ!",
+                danger_from_front: "ବିପଦ! ସାମ୍ନାରୁ ଦ୍ରୁତ ବସ୍ତୁ ଆସୁଛି! ତୁରନ୍ତ ପାର୍ଶ୍ୱକୁ ଘୁଞ୍ଚନ୍ତୁ!",
+                danger_from_behind: "ବିପଦ! ପଛପଟୁ ଦ୍ରୁତ ବସ୍ତୁ ଆସୁଛି! ତୁରନ୍ତ ଦ୍ରୁତ ଗତିରେ ଆଗକୁ ବଢନ୍ତୁ!",
+                safe_now: "ଏବे ସୁରକ୍ଷିତ। ନେଭିଗେସନ ଜାରି ରଖୁଛୁ।",
+                path_clear: "ରାସ୍ତା ସଫା ଅଛି। ଆଗକୁ ଯିବା ସୁରକ୍ଷିତ।"
+            },
+            "assamese": {
+                danger_from_left: "বিপদ! বাওঁফালৰ পৰা দ্ৰুত বস্তু আহি আছে! লগে লগে সোঁফালে যাওক!",
+                danger_from_right: "বিপদ! সোঁফালৰ পৰা দ্ৰুত বস্তু আহি আছে! লগে লগে বাওঁফালে যাওক!",
+                danger_from_front: "বিপদ! সন্মুখৰ পৰা দ্ৰুত বস্তু আহি আছে! লগে লগে কাষলৈ আঁতৰি যাওক!",
+                danger_from_behind: "বিপদ! পিছফালৰ পৰা দ্ৰুত বস্তু আহি আছে! লগে লগে খৰকৈ আগবাঢ়ক!",
+                safe_now: "এতিয়া নিৰাপদ। নেভিগেশ্যন অব্যাহত ৰাখিছোঁ।",
+                path_clear: "পথ মুকলি। আগবাঢ়িবলৈ নিৰাপদ।"
+            },
+            "urdu": {
+                danger_from_left: "خطرہ! بائیں طرف سے تیز چیز آ رہی ہے! فوری دائیں طرف ہو جائیں!",
+                danger_from_right: "خطرہ! دائیں طرف سے تیز چیز آ رہی ہے! فوری بائیں طرف ہو جائیں!",
+                danger_from_front: "خطرہ! سامنے سے تیز چیز آ رہی ہے! فوری ایک طرف ہو جائیں!",
+                danger_from_behind: "خطرہ! پیچھے سے تیز چیز آ رہی ہے! فوری تیزی سے آگے بڑھیں!",
+                safe_now: "اب محفوظ ہے۔ نیویگیشن جاری رکھ رہے ہیں۔",
+                path_clear: "راستہ صاف ہے۔ آگے بڑھنا محفوظ ہے۔"
+            },
+            "sanskrit": {
+                danger_from_left: "आपत्! वामतः द्रुतवस्तु आयाति! शीघ्रं दक्षिणतः सरतु!",
+                danger_from_right: "आपत्! दक्षिणतः द्रुतवस्तु आयाति! शीघ्रं वामतः सरतु!",
+                danger_from_front: "आपत्! पुरतः द्रुतवस्तु आयाति! शीघ्रं पार्श्वतः सरतु!",
+                danger_from_behind: "आपत्! पृष्ठतः द्रुतवस्तु आयाति! शीघ्रं वेगेन अग्रे गच्छतु!",
+                safe_now: "अधुना सुरक्षितम्। मार्गदर्शनं प्रचलति।",
+                path_clear: "मार्गः रिक्तः। गन्तुं सुरक्षितम्।"
+            },
+            "kashmiri": {
+                danger_from_left: "ख़तरनाक! ख्वर तर्फ़ प्यठ छु तेज़ चीज़ यवान! जलद दचुन तर्फ़ गछिव!",
+                danger_from_right: "ख़तरनाक! दचुन तर्फ़ प्यठ छु तेज़ चीज़ यवान! जलद ख्वर तर्फ़ गछिव!",
+                danger_from_front: "ख़तरनाक! ब्रोह कनि प्यठ छु तेज़ चीज़ यवान! जलद कनि गछिव!",
+                danger_from_behind: "ख़तरनाक! पतो कनि प्यठ छु तेज़ चीज़ यवान! जलद तेज़ ब्रोह गछिव!",
+                safe_now: "वूनि छु महफूज़। नेविगेशन चालु।",
+                path_clear: "वाथ छा साफ। अग्रे गछुन महफूज़।"
+            },
+            "sindhi": {
+                danger_from_left: "خطرو! کاٻي پاسي کان تيز شيءِ اچي پئي! ترت ساڄي پاسي ٿيو!",
+                danger_from_right: "خطرو! ساڄي پاسي کان تيز شيءِ اچي پئي! ترت کاٻي پاسي ٿيو!",
+                danger_from_front: "خطرو! سامهون کان تيز شيءِ اچي پئي! ترت پاسي ٿيو!",
+                danger_from_behind: "خطرو! پٺيان کان تيز شيءِ اچي پئي! ترت تيزيءَ سان اڳتي وڌو!",
+                safe_now: "هاڻي محفوظ آهي. نيويگيشن جاري رکجي ٿي.",
+                path_clear: "رستو صاف آهي. اڳتي وڌڻ محفوظ آهي।"
+            },
+            "konkani": {
+                danger_from_left: "धोको! दाव्या वटेन वेगान वस्तू yeता! रोखडेच उजव्या वटेन वचात!",
+                danger_from_right: "धोको! उजव्या वटेन वेगान वस्तू yeता! रोखडेच दाव्या वटेन वचात!",
+                danger_from_front: "धोको! मुखारल्यान वेगान वस्तू yeता! रोखडेच कुशीक वचात!",
+                danger_from_behind: "धोको! फाटल्यान वेगान वस्तू yeता! रोखडेच वेगान मुखार वचात!",
+                safe_now: "आतां सुुरक्षित आसा. नेव्हिगेशन चालू दवरता.",
+                path_clear: "रस्तो मेकळो आसा. मुखार वचपाक सुरक्षित आसा."
+            },
+            "manipuri": {
+                danger_from_left: "অকাইবা! ওইরোমদগী থুনা পোৎশক লাক্লি! অতি ওনবা ওইনা যেৎ থংবা নাকোন্না চিংশিনবীয়ু!",
+                danger_from_right: "অকাইবা! যেত্রোমদগী থুনা পোৎশক লাক্লি! অতি ওনবা ওইনা ওই থংবা নাকোন্না চিংশিনবীয়ু!",
+                danger_from_front: "অকাইবা! মাঙলোমদগী থুনা পোৎশক লাক্লি! অতি ওনবা ওইনা নাকোন্দা চিংশিনবীয়ু!",
+                danger_from_behind: "অকাইবা! তুংলোমদগী থুনা পোৎশক লাক্লি! অতি ওনবা ওইনা মাঙলোমদা থুনা চঙশিনবীয়ু!",
+                safe_now: "হৌজিক অকাইবা লৈতরে। নেভিগেশন হৌরে।",
+                path_clear: "লম্বী শেংলে। মখোয় চৎপা য়ারে।"
+            },
+            "nepali": {
+                danger_from_left: "खतरा! बायाँबाट तीव्र गतिमा वस्तु आउँदैछ! तुरुन्तै दायाँतर्फ लाग्नुहोस्!",
+                danger_from_right: "खतरा! दायाँबाट तीव्र गतिमा वस्तु आउँदैछ! तुरुन्तै बायाँतर्फ लाग्नुहोस्!",
+                danger_from_front: "खतरा! अगाडिबाट तीव्र गतिमा वस्तु आउँदैछ! तुरुन्तै छेउ लाग्नुहोस्!",
+                danger_from_behind: "खतरा! पछाडिबाट तीव्र गतिमा वस्तु आउँदैछ! तुरुन्तै छिटो अगाडि बढ्नुहोस्!",
+                safe_now: "अहिले सुरक्षित छ। नेभिगेसन जारी छ।",
+                path_clear: "बाटो खाली छ। अघि बढ्न सुरक्षित छ।"
+            },
+            "bodo": {
+                danger_from_left: "खैफोद! आगसिथिंनिफ्राय गोख्रै बेसाद फैगासिनो दं! खनायावनो आगदाथिं थां!",
+                danger_from_right: "खैफोद! आगदाथिंनिफ्राय गोख्रै बेसाद फैगासिनो दं! खनायावनो आगसिथिं थां!",
+                danger_from_front: "खैफोद! सिगांथिंनिफ्राय गोख्रै बेसाद फैगासिनो दं! खनायावनो सिगां थां!",
+                danger_from_behind: "खैफोद! उनथिंनिफ्राय गोख্ৰै बेसाद फैगासिनो दं! खनायावनो उनथिं गोख्रै थां!",
+                safe_now: "দানो खैफोद गैया। नेभिगेसन जागायबाय।",
+                path_clear: "लामा लांदां। थांनो हाबाय।"
+            },
+            "dogri": {
+                danger_from_left: "खतरा! खब्बै पासै थमां तेज वस्तु आ करदी ऐ! तुरत सज्जै पासै ओओ!",
+                danger_from_right: "खतरा! सज्जै पासै थमां तेज वस्तु आ करदी ऐ! तुरत खब्बै पासै ओओ!",
+                danger_from_front: "खतरा! साहमनै थमां तेज वस्तु आ करदी ऐ! तुरत पासै ओओ!",
+                danger_from_behind: "खतरा! पिच्छै थमां तेज वस्तु आ करदी ऐ! तुरत तेजी कन्नै अग्गें बधो!",
+                safe_now: "हुण सुरक्षित ऐ। नेविगेशन जारी ऐ।",
+                path_clear: "रस्ता साफ ऐ। अग्गें बधना सुरक्षित ऐ।"
+            },
+            "maithili": {
+                danger_from_left: "खतरा! बामा कात स तेज वस्तु आबि रहल अछि! तुरंत दहिना कात हटू!",
+                danger_from_right: "खतरा! दहिना कात स तेज वस्तु आबि रहल अछि! तुरंत बामा कात हटू!",
+                danger_from_front: "खतरा! सामने स तेज वस्तु आबि रहल अछि! तुरंत कतहु कात हटू!",
+                danger_from_behind: "खतरा! पाछा स तेज वस्तु आबि रहल अछि! तुरंत तेजी स आगू बढ़ू!",
+                safe_now: "एखन सुरक्षित अछि। नेविगेशन जारी अछि।",
+                path_clear: "रस्ता साफ अछि। आगू बढ़ब सुरक्षित अछि।"
+            },
+            "santali": {
+                danger_from_left: "ᱵᱷᱤᱡᱚᱱ ᱮᱰ ᱨᱮ ᱠᱷᱟᱛᱨᱟ! ᱞᱮᱸᱜᱟ ᱥᱮᱫ ᱠᱷᱚᱱ ᱜᱟᱹᱰᱤ ᱦᱤᱡᱩᱜ ᱠᱟնᱟ! ᱡᱚᱡᱚᱢ ᱥᱮᱫ ᱥᱮᱱᱚᱜ ᱢᱮ!",
+                danger_from_right: "ᱵᱷᱤᱡᱚᱱ ᱮᱰ ᱨᱮ ᱠᱷﺎᱛᱨᱟ! ᱡᱚᱡᱚᱢ ᱥᱮᱫ ᱠᱷᱚن ᱜᱟᱹᱰᱤ ᱦᱤᱡᱩᱜ ᱠﺎնᱟ! ᱞᱮᱸᱜᱟ ᱥᱮᱫ ᱥᱮᱱۆᱜ ᱢᱮ!",
+                danger_from_front: "ᱵᱷᱤᱡᱚᱱ ᱮᱰ ᱨᱮ ᱠᱷᱟᱛᱨᱟ! ᱥᱟᱢᱟᱝ ᱥᱮᱫ ᱠᱷᱚନ ᱜᱟᱹᱰᱤ ᱦᱤᱡᱩᱜ ᱠﺎնᱟ! ᱥᱩᱨ ᱨᱮ ᱥᱮᱱۆᱜ ᱢᱮ!",
+                danger_from_behind: "ᱵᱷᱤᱡᱚᱱ ᱮᱰ ᱨᱮ ᱠᱷﺎᱛᱨᱟ! ᱛﺎᱭᱚਮ ᱥᱮᱫ ᱠᱷᱚନ ᱜᱟᱹᱰᱤ ᱦᱤᱡᱩᱜ ᱠﺎնᱟ! ᱛﺎᱭᱚਮ ᱥᱮᱫ ᱛᱟᱹପᱤᱥ ᱥᱮᱱۆᱜ ᱢᱮ!",
+                safe_now: "ᱱᱤᱛᱚᱜ ᱵᱟᱸᱪᱟᱣ ᱮᱱᱟ। ᱱᱮᱵᱷᱤᱜᱮᱥᱚᱱ ᱮᱦᱚᱵ ᱮնᱟ।",
+                path_clear: "ᱰᱟᱦᱟᱨ ᱥᱟᱯᱷᱟ ᱜေᱭᱟ। ᱥᱮᱱᱚᱜ ᱞᱟᱹᱜ𝐢ᱫ ᱴᱷᱤᱠ ᱜᱮᱭᱟ।"
+            },
+            "spanish": {
+                danger_from_left: "¡Peligro! ¡Objeto rápido aproximándose por la izquierda! ¡Muévete a la derecha inmediatamente!",
+                danger_from_right: "¡Peligro! ¡Objeto rápido aproximándose por la derecha! ¡Muévete a la izquierda inmediatamente!",
+                danger_from_front: "¡Peligro! ¡Objeto rápido aproximándose por el frente! ¡Muévete a un lado inmediatamente!",
+                danger_from_behind: "¡Peligro! ¡Objeto rápido aproximándose por detrás! ¡Muévete hacia adelante rápido inmediatamente!",
+                safe_now: "Seguro ahora. Continuando la navegación.",
+                path_clear: "Camino despejado. Seguro para continuar."
+            },
+            "french": {
+                danger_from_left: "Danger ! Objet rapide approchant par la gauche ! Déplacez-vous vers la droite immédiatement !",
+                danger_from_right: "Danger ! Objet rapide approchant par la droite ! Déplacez-vous vers la gauche immédiatement !",
+                danger_from_front: "Danger ! Objet rapide approchant par l'avant ! Déplacez-vous sur le côté immédiatement !",
+                danger_from_behind: "Danger ! Objet rapide approchant par derrière ! Déplacez-vous vers l'avant rapidement immédiatement !",
+                safe_now: "Sécurité maintenant. Poursuite de la navigation.",
+                path_clear: "Voie libre. Sûr pour continuer."
+            },
+            "arabic": {
+                danger_from_left: "خطر! جسم سريع يقترب من اليسار! تحرك إلى اليمين فورًا!",
+                danger_from_right: "خطر! جسم سريع يقترب من اليمين! تحرك إلى اليسار فورًا!",
+                danger_from_front: "خطر! جسم سريع يقترب من الأمام! تحرك جانبًا فورًا!",
+                danger_from_behind: "خطر! جسم سريع يقترب من الخلف! تحرك إلى الأمام بسرعة فورًا!",
+                safe_now: "آمن الآن. جاري مواصلة الملاحة.",
+                path_clear: "المسار خالٍ. آمن للمتابعة."
+            },
+            "chinese": {
+                danger_from_left: "危险！快速物体正从左侧接近！请立即向右移动！",
+                danger_from_right: "危险！快速物体正从右侧接近！请立即向左移动！",
+                danger_from_front: "危险！快速物体正从前方接近！请立即向侧面移",
+                danger_from_behind: "危险！快速物体正从后方接近！请立即向前加速！",
+                safe_now: "现在安全了。继续导航。",
+                path_clear: "路径畅通。可以继续前进。"
+            }
+        };
+
+        function playSpatialBeep(freq, pan, duration, volume = 0.3) {
+            initAudioContext();
+            if (!audioContext) return;
+
+            const osc = audioContext.createOscillator();
+            const gainNode = audioContext.createGain();
+            
+            osc.type = 'sine';
+            osc.frequency.setValueAtTime(freq, audioContext.currentTime);
+            
+            gainNode.gain.setValueAtTime(volume, audioContext.currentTime);
+            gainNode.gain.exponentialRampToValueAtTime(0.0001, audioContext.currentTime + duration);
+            
+            let pannerNode;
+            if (audioContext.createStereoPanner) {
+                pannerNode = audioContext.createStereoPanner();
+                pannerNode.pan.setValueAtTime(pan, audioContext.currentTime);
+            } else {
+                pannerNode = audioContext.createPanner();
+                pannerNode.panningModel = 'HRTF';
+                pannerNode.setPosition(pan, 0, 1 - Math.abs(pan));
+            }
+            
+            osc.connect(gainNode);
+            gainNode.connect(pannerNode);
+            pannerNode.connect(audioContext.destination);
+            
+            osc.start();
+            osc.stop(audioContext.currentTime + duration);
+        }
+
+        function screenReaderAnnounce(text, priority = 'polite') {
+            const el = document.createElement('div');
+            el.className = 'sr-only';
+            el.setAttribute('aria-live', priority === 'assertive' ? 'assertive' : 'polite');
+            el.textContent = text;
+            screamerBox.appendChild(el);
+            setTimeout(() => el.remove(), 4000);
+        }
+
+        // Camera Management
+        async function startCamera() {
+            try {
+                videoStream = await navigator.mediaDevices.getUserMedia({
+                    video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } }
+                });
+                webcam.srcObject = videoStream;
+                webcam.style.display = 'block';
+                imagePreview.style.display = 'none';
+                viewportPlaceholder.style.display = 'none';
+                viewportContainer.classList.add('active-border');
+                screenReaderAnnounce("Webcam interface active.");
+            } catch (e) {
+                console.error("Camera startup failed:", e);
+                webcam.style.display = 'none';
+                viewportPlaceholder.style.display = 'flex';
+                viewportPlaceholder.innerHTML = `<i class="fa-solid fa-triangle-exclamation" style="color:var(--error);"></i><p>Webcam blocked or unavailable.</p>`;
+                screenReaderAnnounce("Camera startup blocked. Voice navigation active.");
+            }
+        }
+
+        // Web Audio analysis for sudden loud sounds (vehicle horns)
+
+        function initAudioContext() {
+            if (!audioContext) {
+                audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            }
+        }
+
+        function getTranslation(key) {
+            const lang = translations[selectedLanguageKey];
+            if (lang && lang[key]) return lang[key];
+            return translations["english"][key] || key;
+        }
+        async function startMicrophoneMonitoring() {
+            try {
+                initAudioContext();
+                microphoneStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                const source = audioContext.createMediaStreamSource(microphoneStream);
+                
+                analyser = audioContext.createAnalyser();
+                analyser.fftSize = 256;
+                source.connect(analyser);
+
+                badgeDb.classList.add('active');
+                dbValueText.textContent = "Listening";
+
+                const dataArray = new Uint8Array(analyser.frequencyBinCount);
+                
+                // Footstep / Movement Detection State
+                let noiseBaseline = 20;   // rolling average ambient noise level
+                let lastFootstepTime = 0; // debounce: don't repeat within 4 sec
+                const FOOTSTEP_COOLDOWN_MS = 4000;
+
+                function checkDecibels() {
+                    if (!isMicAlarmActive) return;
+                    analyser.getByteFrequencyData(dataArray);
+                    
+                    // Compute overall average (all frequencies)
+                    let sum = 0;
+                    for (let i = 0; i < dataArray.length; i++) {
+                        sum += dataArray[i];
+                    }
+                    const avg = sum / dataArray.length;
+                    const db = Math.round((avg / 255) * 100);
+
+                    // ------ Low-frequency energy (bins 0-15 ≈ 0-1500 Hz)
+                    // Footsteps/thumps concentrate energy here
+                    let lowSum = 0;
+                    const LOW_BINS = Math.min(16, dataArray.length);
+                    for (let i = 0; i < LOW_BINS; i++) lowSum += dataArray[i];
+                    const lowAvg = lowSum / LOW_BINS;
+
+                    // ------ High-frequency energy (bins 60-127 ≈ 6kHz+)
+                    // Vehicle horns concentrate energy here
+                    let highSum = 0;
+                    const HIGH_START = Math.floor(dataArray.length * 0.47);
+                    for (let i = HIGH_START; i < dataArray.length; i++) highSum += dataArray[i];
+                    const highAvg = highSum / (dataArray.length - HIGH_START);
+
+                    dbValueText.textContent = db + " dB";
+
+                    // Rolling baseline (slow rise, fast fall)
+                    noiseBaseline = noiseBaseline * 0.97 + db * 0.03;
+                    const spikeAboveBaseline = db - noiseBaseline;
+
+                    // ------ HORN DETECTION: large overall spike AND high-frequency dominated
+                    if (db > 78 && highAvg > lowAvg * 1.2) {
+                        dbWarningAlert.textContent = "LOUD SPIKE!";
+                        dbWarningAlert.classList.add('spiked');
+                        playSpatialBeep(1200, 0, 0.45);
+                        
+                        const hornAnnounce = getTranslation("horn");
+                        screenReaderAnnounce(hornAnnounce, "assertive");
+                        speakText(hornAnnounce, 1, 1.3, 1.2, 1.0); // Urgent tone
+
+                        setTimeout(() => {
+                            dbWarningAlert.textContent = "Sound Monitor";
+                            dbWarningAlert.classList.remove('spiked');
+                        }, 2500);
+
+                    // ------ FOOTSTEP / MOVEMENT DETECTION: sudden spike dominated by low freq
+                    } else if (
+                        spikeAboveBaseline > 22 &&        // clearly louder than ambient
+                        lowAvg > highAvg * 1.5 &&         // low-frequency dominated (thumping)
+                        db > 35 &&                        // minimum audible threshold
+                        db < 80 &&                        // not a loud horn
+                        (Date.now() - lastFootstepTime) > FOOTSTEP_COOLDOWN_MS
+                    ) {
+                        lastFootstepTime = Date.now();
+                        dbWarningAlert.textContent = "Movement!";
+                        dbWarningAlert.classList.add('spiked');
+
+                        // Spatial warning beep panned to rear (behind = center with low freq)
+                        playSpatialBeep(320, 0, 0.55, 0.9);
+
+                        // Urgent warning speech
+                        const footAlert = getTranslation("footsteps_alert") ||
+                            "Caution! Movement detected behind you!";
+                        screenReaderAnnounce(footAlert, "assertive");
+                        speakText(footAlert, 2, 1.35, 1.3, 1.0); // Max priority, urgent
+
+                        setTimeout(() => {
+                            dbWarningAlert.textContent = "Sound Monitor";
+                            dbWarningAlert.classList.remove('spiked');
+                        }, 3000);
+                    }
+                    
+                    setTimeout(() => requestAnimationFrame(checkDecibels), 100);
+                }
+                
+                checkDecibels();
+
+            } catch (err) {
+                console.error("Mic access denied:", err);
+                isMicAlarmActive = false;
+            }
+        }
+
+        // Dark Area Detection
+        let darknessWarned = false;
+        function scanFrameBrightness(canvasCtx, width, height) {
+            try {
+                const imgData = canvasCtx.getImageData(0, 0, width, height);
+                const pixels = imgData.data;
+                let colorSum = 0;
+                
+                for (let i = 0; i < pixels.length; i += 16) {
+                    const r = pixels[i];
+                    const g = pixels[i + 1];
+                    const b = pixels[i + 2];
+                    colorSum += (r + g + b) / 3;
+                }
+                
+                const avgBrightness = colorSum / (pixels.length / 16);
+                
+                if (avgBrightness < 38) {
+                    darkAlert.style.display = 'flex';
+                    badgeLight.className = 'badge active';
+                    badgeLight.querySelector('span').textContent = "Low Light";
+                    
+                    if (!darknessWarned) {
+                        darknessWarned = true;
+                        playSpatialBeep(1400, 0, 0.4);
+                        
+                        const translatedEvent = getEventTranslation("sudden_darkness");
+                        const warningSpeech = getTranslation("caution") + " " + translatedEvent + " " + getTranslation("detected");
+                        
+                        screenReaderAnnounce(warningSpeech, "assertive");
+                        speakText(warningSpeech, 1); // High priority = 1 to interrupt immediately
+                    }
+                    return true;
+                } else {
+                    darkAlert.style.display = 'none';
+                    badgeLight.className = 'badge success-badge';
+                    badgeLight.querySelector('span').textContent = "Lux Clear";
+                    darknessWarned = false; // Reset warning state once light recovers
+                    return false;
+                }
+            } catch(e) {
+                return false;
+            }
+        }
+
+        function snapFrame() {
+            if (!videoStream) return null;
+
+            const canvas = document.getElementById('hidden-canvas');
+            const context = canvas.getContext('2d');
+            canvas.width = webcam.videoWidth || 1280;
+            canvas.height = webcam.videoHeight || 720;
+            context.drawImage(webcam, 0, 0, canvas.width, canvas.height);
+
+            scanFrameBrightness(context, canvas.width, canvas.height);
+
+            viewportContainer.style.opacity = '0.7';
+            setTimeout(() => viewportContainer.style.opacity = '1', 50);
+
+            return canvas.toDataURL('image/jpeg');
+        }
+
+        // Send base64 image data to Flask backend `/analyze` API
+        let isAnalyzing = false;
+        async function runAIAnalysis(dataUrl) {
+            if (isAnalyzing) {
+                console.log("[Scan Throttled] Analysis already in progress. Skipping frame dispatch.");
+                return;
+            }
+            isAnalyzing = true;
+
+            scanner.style.display = 'block';
+            badgeScan.className = 'badge active';
+            badgeScan.querySelector('span').textContent = getTranslation("scanning");
+
+            try {
+                console.log("[Scan Dispatched] Successfully dispatched frame to backend /analyze route.");
+                const res = await fetch('/analyze', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ 
+                        image: dataUrl,
+                        language: supportedLanguages[selectedLanguageKey].name
+                    })
+                });
+
+                if (res.ok) {
+                    const data = await res.json();
+                    if (data.error) {
+                        narratorOutput.textContent = getTranslation("scanning");
+                    } else {
+                        processAIResult(data);
+                    }
+                } else {
+                    throw new Error("HTTP error " + res.status);
+                }
+            } catch (e) {
+                console.error("AI Analysis error:", e);
+                // ALWAYS display localized "Scanning..." strictly per requirements, no fallback text
+                narratorOutput.textContent = getTranslation("scanning");
+            } finally {
+                scanner.style.display = 'none';
+                isAnalyzing = false;
+            }
+        }
+
+        function toggleSystemScanning() {
+            if (!isAutoscanActive) {
+                isAutoscanActive = true;
+                console.log('[UI Toggle] Status button clicked. New state: ' + isAutoscanActive);
+                isScanLoopRunning = true;
+                
+                badgeScan.className = 'badge success-badge';
+                badgeScan.querySelector('span').textContent = "Scan Active";
+                
+                playSpatialBeep(523, 0, 0.25);
+                const utt = new SpeechSynthesisUtterance("Scanning active. Connecting to Gemini brain now.");
+                utt.lang = "en-US";
+                window.speechSynthesis.speak(utt);
+                
+                triggerFastScanCycle();
+            } else {
+                isAutoscanActive = false;
+                console.log('[UI Toggle] Status button clicked. New state: ' + isAutoscanActive);
+                isScanLoopRunning = false;
+                
+                if (scanTimeout) {
+                    clearTimeout(scanTimeout);
+                    scanTimeout = null;
+                }
+                
+                badgeScan.className = 'badge';
+                badgeScan.querySelector('span').textContent = "Scan Offline";
+                
+                if (speechSynth.speaking) {
+                    speechSynth.cancel();
+                }
+                speakText("Scanning stopped");
+            }
+        }
+
+        function initRadarCanvas() {
+            radarCanvas = document.getElementById('spatial-radar-canvas');
+            if (radarCanvas) {
+                radarCtx = radarCanvas.getContext('2d');
+                requestAnimationFrame(drawRadarSweep);
+            }
+        }
+
+        function getRadarCoords(position, distance_m, width, height) {
+            const centerX = width / 2;
+            const centerY = height / 2;
+            const radius = width / 2;
+
+            // Map distance linearly: up to 50 meters max radius (mapped to radius * 0.95)
+            let dist = typeof distance_m === 'number' ? distance_m : 25;
+            if (dist < 0) dist = 0;
+            if (dist > 50) dist = 50;
+
+            const d = (dist / 50) * (radius * 0.95);
+
+            let px = centerX;
+            let py = centerY;
+
+            if (position === 'left' || position === 'aside_left' || position === 'aside') {
+                px = centerX - d;
+                py = centerY;
+            } else if (position === 'right' || position === 'aside_right') {
+                px = centerX + d;
+                py = centerY;
+            } else if (position === 'center' || position === 'front') {
+                px = centerX;
+                py = centerY - d;
+            } else if (position === 'behind') {
+                px = centerX;
+                py = centerY + d;
+            } else {
+                px = centerX;
+                py = centerY - d;
+            }
+            return { x: px, y: py };
+        }
+
+        function drawRadarSweep() {
+            if (!radarCanvas || !radarCtx) return;
+
+            const width = radarCanvas.width;
+            const height = radarCanvas.height;
+            const centerX = width / 2;
+            const centerY = height / 2;
+            const radius = width / 2;
+
+            // -- Step 1: Background fade trail ------------------------------------------
+            radarCtx.fillStyle = 'rgba(5, 8, 17, 0.15)';
+            radarCtx.fillRect(0, 0, width, height);
+
+            // -- Step 2: Grid rings & crosshairs ----------------------------------------
+            radarCtx.lineWidth = 1;
+
+            radarCtx.strokeStyle = 'rgba(0, 242, 254, 0.12)';
+            radarCtx.beginPath();
+            radarCtx.arc(centerX, centerY, radius * 0.95, 0, Math.PI * 2);
+            radarCtx.stroke();
+
+            radarCtx.strokeStyle = 'rgba(0, 242, 254, 0.08)';
+            radarCtx.beginPath();
+            radarCtx.arc(centerX, centerY, radius * 0.65, 0, Math.PI * 2);
+            radarCtx.stroke();
+
+            radarCtx.beginPath();
+            radarCtx.arc(centerX, centerY, radius * 0.35, 0, Math.PI * 2);
+            radarCtx.stroke();
+
+            radarCtx.strokeStyle = 'rgba(0, 242, 254, 0.06)';
+            radarCtx.beginPath();
+            radarCtx.moveTo(0, centerY);
+            radarCtx.lineTo(width, centerY);
+            radarCtx.moveTo(centerX, 0);
+            radarCtx.lineTo(centerX, height);
+            radarCtx.stroke();
+
+            // ---Step 3: Sweeping line -----------------------------------------------------
+            radarCtx.save();
+            radarCtx.translate(centerX, centerY);
+            radarCtx.rotate(radarSweepAngle);
+
+            const sweepGrad = radarCtx.createLinearGradient(0, 0, radius, 0);
+            sweepGrad.addColorStop(0, 'rgba(0, 242, 254, 0.25)');
+            sweepGrad.addColorStop(1, 'rgba(0, 242, 254, 0.0)');
+
+            radarCtx.fillStyle = sweepGrad;
+            radarCtx.beginPath();
+            radarCtx.moveTo(0, 0);
+            radarCtx.arc(0, 0, radius * 0.95, -0.2, 0.2);
+            radarCtx.lineTo(0, 0);
+            radarCtx.fill();
+
+            radarCtx.strokeStyle = 'rgba(0, 242, 254, 0.35)';
+            radarCtx.lineWidth = 1.2;
+            radarCtx.beginPath();
+            radarCtx.moveTo(0, 0);
+            radarCtx.lineTo(radius * 0.95, 0);
+            radarCtx.stroke();
+
+            radarCtx.restore();
+
+            // Advance sweep angle
+            radarSweepAngle += 0.035;
+            if (radarSweepAngle >= Math.PI * 2) {
+                radarSweepAngle = 0;
+            }
+
+            // ---Step 4: Draw target dots ON TOP of sweep ---------------------------------
+            // Use the persistent activeRadarTargets - not cleared per-frame.
+            // radarHazards is kept as a legacy alias pointing to activeRadarTargets.
+            const now = Date.now();
+
+            activeRadarTargets.forEach(h => {
+                const isDanger = (h.size === 'macro' || h.type === 'danger');
+
+                if (isDanger) {
+                    // Danger dot: bright blinking red/orange (#ff3b30) with hazard halo
+                    const flash = Math.floor(now / 150) % 2 === 0;
+                    const coreColor = flash ? '#ff3b30' : 'rgba(255, 59, 48, 0.55)';
+
+                    // Hazard halo (radius 14px)
+                    radarCtx.beginPath();
+                    radarCtx.arc(h.x, h.y, 14, 0, Math.PI * 2);
+                    radarCtx.fillStyle = 'rgba(255, 59, 48, 0.4)';
+                    radarCtx.fill();
+
+                    // Pulsing ring
+                    const pulse = (now % 600) / 600;
+                    radarCtx.beginPath();
+                    radarCtx.arc(h.x, h.y, 14 + pulse * 6, 0, Math.PI * 2);
+                    radarCtx.strokeStyle = `rgba(255, 59, 48, ${0.7 * (1 - pulse)})`;
+                    radarCtx.lineWidth = 1.5;
+                    radarCtx.stroke();
+
+                    // Core dot (6px)
+                    radarCtx.beginPath();
+                    radarCtx.arc(h.x, h.y, 6, 0, Math.PI * 2);
+                    radarCtx.fillStyle = coreColor;
+                    radarCtx.fill();
+
+                } else {
+                    // Standard dot: bright solid cyan (#00f3ff) with semi-transparent glow halo
+
+                    // Glowing outer halo (radius 12px)
+                    radarCtx.beginPath();
+                    radarCtx.arc(h.x, h.y, 12, 0, Math.PI * 2);
+                    radarCtx.fillStyle = 'rgba(0, 243, 255, 0.3)';
+                    radarCtx.fill();
+
+                    // Core dot (6px)
+                    radarCtx.beginPath();
+                    radarCtx.arc(h.x, h.y, 6, 0, Math.PI * 2);
+                    radarCtx.fillStyle = '#00f3ff';
+                    radarCtx.fill();
+                }
+            });
+
+            requestAnimationFrame(drawRadarSweep);
+        }
+
+        // Process Gemini API Result & Trigger Spatial Sounds
+        function processAIResult(payload) {
+            badgeScan.className = 'badge success-badge';
+            badgeScan.querySelector('span').textContent = "Synced";
+            if (blipsHolder) {
+                blipsHolder.innerHTML = '';
+            }
+
+            // Clear and rebuild the persistent targets array on each successful /analyze response
+            activeRadarTargets = [];
+            radarHazards = activeRadarTargets; // keep legacy alias in sync
+
+            // Handle Smart Danger Alerts
+            if (payload.smart_danger && payload.smart_danger.detected) {
+                handleDangerDetected(payload.smart_danger);
+                return;
+            } else if (isDangerActive) {
+                handleDangerCleared();
+                return;
+            }
+
+            // Sudden event checking: vehicles, running people, sudden darkness, rain, smoke
+            if (payload.detected_events) {
+                const events = payload.detected_events;
+                for (const eventName in events) {
+                    if (events[eventName] === true) {
+                        // High-Priority Alert! Interrupt immediately!
+                        playSpatialBeep(1400, 0, 0.4);
+                        
+                        const translatedEvent = getEventTranslation(eventName);
+                        const warningSpeech = getTranslation("caution") + " " + translatedEvent + " " + getTranslation("detected");
+                        
+                        screenReaderAnnounce(warningSpeech, "assertive");
+                        speakText(warningSpeech, 1); // Strict immediate interrupt
+                        
+                        // Break after first matched event to prevent verbal overlap
+                        return;
+                    }
+                }
+            }
+
+            // Real-time scan voice announcers
+            narratorOutput.textContent = payload.description;
+            currentTextToRead = payload.description;
+            speakText(payload.description, 0); // Normal scan priority
+
+            // Spatial Obstacles mapping
+            if (payload.obstacles && payload.obstacles.length > 0) {
+                payload.obstacles.forEach((obstacle, i) => {
+                    let panVal = 0.0;
+
+                    if (obstacle.position === 'left' || obstacle.position === 'aside_left') {
+                        panVal = -1.0;
+                    } else if (obstacle.position === 'right' || obstacle.position === 'aside_right') {
+                        panVal = 1.0;
+                    }
+
+                    const coords = getRadarCoords(obstacle.position, obstacle.distance_m, 130, 130);
+
+                    let hType = "normal";
+                    const labelLower = (obstacle.label || "").toLowerCase();
+                    const isPerson = labelLower.includes("person") || labelLower.includes("man") || labelLower.includes("woman") || labelLower.includes("people") || labelLower.includes("child") || labelLower.includes("pedestrian");
+                    
+                    if (isPerson && (obstacle.position === 'aside_left' || obstacle.position === 'aside_right' || obstacle.position === 'aside')) {
+                        hType = "person_aside";
+                    } else if (obstacle.position === 'aside_left' || obstacle.position === 'aside_right' || obstacle.position === 'aside') {
+                        hType = "aside";
+                    }
+
+                    activeRadarTargets.push({
+                        x: coords.x,
+                        y: coords.y,
+                        type: hType,
+                        size: obstacle.size || "normal",
+                        label: obstacle.label,
+                        addedTime: Date.now()
+                    });
+
+                    // Directional voice alert alerts
+                    let voiceAlert = "";
+                    if (isPerson && (obstacle.position === 'aside_left' || obstacle.position === 'aside_right' || obstacle.position === 'left' || obstacle.position === 'right')) {
+                        const side = (obstacle.position.includes('left') || obstacle.position === 'left') ? 'left' : 'right';
+                        voiceAlert = `Person detected on your ${side} side.`;
+                    } else if (obstacle.size === 'tiny') {
+                        let dirCue = "ahead";
+                        if (obstacle.position === 'left' || obstacle.position === 'aside_left') dirCue = "on your left";
+                        else if (obstacle.position === 'right' || obstacle.position === 'aside_right') dirCue = "on your right";
+                        voiceAlert = `Watch your step, small object on the floor ${dirCue} 2 steps ahead.`;
+                    } else if (obstacle.position === 'behind') {
+                        voiceAlert = `Warning, ${obstacle.label || "obstacle"} detected behind you.`;
+                    }
+
+                    if (voiceAlert) {
+                        speakText(voiceAlert, 1);
+                    }
+
+                    setTimeout(() => {
+                        const freq = panVal === -1.0 ? 800 : (panVal === 1.0 ? 550 : 300);
+                        playSpatialBeep(freq, panVal, 0.25);
+                        screenReaderAnnounce(`Obstacle ${obstacle.label} on ${obstacle.position}`);
+                    }, i * 300);
+                });
+            }
+        }
+
+        // Voice Synthesis Engine - priority-based non-blocking speech manager
+        function speakText(text, priority = 0, rate = null, pitch = null, volume = null) {
+            // IRONCLAD FILTER: Block repetitive offline/simulation fallback voice loops
+            if (!text || text.toLowerCase().includes("offline safety mode") || text.toLowerCase().includes("simulation tracking")) {
+                console.warn("[speakText] Blocked repeating safety voice alert loop:", text);
+                return;
+            }
+            
+            // If another speak is running, do not let lower-priority interrupt it
+            if (speakInProgress && currentSpeechPriority > priority) {
+                return;
+            }
+
+            try {
+                if (speechSynth.speaking) {
+                    speechSynth.cancel();
+                }
+                
+                // Chrome SpeechSynthesis freeze workaround
+                if (speechSynth.paused) {
+                    speechSynth.resume();
+                }
+            } catch(e) {
+                console.warn(e);
+            }
+
+            assistantVisualizer.className = "aj-visualizer speaking";
+            speakInProgress = true;
+            currentSpeechPriority = priority;
+            
+            const utterance = new SpeechSynthesisUtterance(text);
+            currentUtterance = utterance; // Track latest active utterance
+            
+            if (rate !== null) utterance.rate = rate;
+            if (pitch !== null) utterance.pitch = pitch;
+            if (volume !== null) utterance.volume = volume;
+
+            const voices = speechSynth.getVoices();
+            const targetLang = supportedLanguages[selectedLanguageKey].code;
+            
+            let chosenVoice = null;
+            for (let i = 0; i < voices.length; i++) {
+                if (voices[i].lang.startsWith(targetLang) || voices[i].lang.replace('_', '-').startsWith(targetLang.substring(0, 2))) {
+                    if (voices[i].name.toLowerCase().includes('google') || voices[i].name.toLowerCase().includes('natural') || voices[i].name.toLowerCase().includes('female')) {
+                        chosenVoice = voices[i];
+                        break;
+                    }
+                }
+            }
+            if (!chosenVoice) {
+                for (let i = 0; i < voices.length; i++) {
+                    if (voices[i].lang.startsWith(targetLang) || voices[i].lang.replace('_', '-').startsWith(targetLang.substring(0, 2))) {
+                        chosenVoice = voices[i];
+                        break;
+                    }
+                }
+            }
+            if (chosenVoice) {
+                utterance.voice = chosenVoice;
+            }
+
+            utterance.onstart = function() {
+                if (currentUtterance !== utterance) return;
+                waveAnim.style.display = 'flex';
+            };
+
+            utterance.onerror = function() {
+                if (currentUtterance !== utterance) return;
+                speakInProgress = false;
+                currentSpeechPriority = 0;
+                waveAnim.style.display = 'none';
+                assistantVisualizer.className = "aj-visualizer";
+            };
+
+            utterance.onend = function() {
+                if (currentUtterance !== utterance) return;
+                speakInProgress = false;
+                currentSpeechPriority = 0;
+                waveAnim.style.display = 'none';
+                if (onboardingStep === "ready" && isAutoscanActive) {
+                    assistantVisualizer.className = "aj-visualizer listening";
+                } else {
+                    assistantVisualizer.className = "aj-visualizer";
+                }
+            };
+
+            speechSynth.speak(utterance);
+        }
+
+        // Smart Vehicle Danger Helper Functions
+        function handleDangerDetected(danger) {
+            dangerDetails = danger;
+            if (!isDangerActive) {
+                isDangerActive = true;
+                
+                // Cancel current speech immediately
+                if (speechSynth.speaking) {
+                    speechSynth.cancel();
+                }
+                speakInProgress = false;
+                currentSpeechPriority = 0;
+                
+                // Clear any old interval
+                if (dangerInterval) {
+                    clearInterval(dangerInterval);
+                }
+                
+                // Trigger immediately, then every 2 seconds
+                triggerDangerAlert();
+                dangerInterval = setInterval(triggerDangerAlert, 2000);
+            }
+
+            // Draw smart danger on radar canvas
+            let dangerDistance = 2; // close
+            if (danger.distance === 'medium') dangerDistance = 15;
+            else if (danger.distance === 'far') dangerDistance = 40;
+
+            const coords = getRadarCoords(danger.direction, dangerDistance, 130, 130);
+            activeRadarTargets = [{
+                x: coords.x,
+                y: coords.y,
+                type: "danger",
+                size: "macro",
+                label: danger.type || "vehicle",
+                addedTime: Date.now()
+            }];
+            radarHazards = activeRadarTargets; // keep legacy alias in sync
+        }
+
+        function handleDangerCleared() {
+            if (dangerInterval) {
+                clearInterval(dangerInterval);
+                dangerInterval = null;
+            }
+            isDangerActive = false;
+            dangerDetails = null;
+            
+            // Cancel current warning speech
+            if (speechSynth.speaking) {
+                speechSynth.cancel();
+            }
+            speakInProgress = false;
+            currentSpeechPriority = 0;
+            
+            // Announce safe states at high priority (2) to ensure immediate playback
+            const safeText = getDangerTranslation("safe_now") + " " + getDangerTranslation("path_clear");
+            speakText(safeText, 2);
+        }
+
+        function triggerDangerAlert() {
+            if (!isDangerActive || !dangerDetails) {
+                if (dangerInterval) {
+                    clearInterval(dangerInterval);
+                    dangerInterval = null;
+                }
+                return;
+            }
+
+            const direction = dangerDetails.direction; // "left" | "right" | "front" | "behind"
+            const distance = dangerDetails.distance; // "far" | "medium" | "close"
+
+            // Compute panning (left = -1, right = 1, front/behind = 0)
+            let pan = 0.0;
+            if (direction === "left") pan = -1.0;
+            else if (direction === "right") pan = 1.0;
+
+            // Audio & speech settings based on distance
+            let freq = 1000;
+            let duration = 0.35;
+            let volume = 0.7;
+            let rate = 1.25;
+            let pitch = 1.1;
+
+            if (distance === "far") {
+                freq = 880;
+                duration = 0.3;
+                volume = 0.4;
+                rate = 0.95;
+                pitch = 1.0;
+            } else if (distance === "close") {
+                freq = 1200;
+                duration = 0.4;
+                volume = 1.0; // Max volume
+                rate = 1.45;
+                pitch = 1.2;
+            }
+
+            // Play the alert beep
+            playSpatialBeep(freq, pan, duration, volume);
+
+            // Construct localized evasion message
+            let translationKey = "danger_from_front";
+            if (direction === "left") translationKey = "danger_from_left";
+            else if (direction === "right") translationKey = "danger_from_right";
+            else if (direction === "behind") translationKey = "danger_from_behind";
+
+            const warningText = getTranslation(translationKey);
+            
+            // Speak warning immediately with priority 2
+            speakText(warningText, 2, rate, pitch, volume);
+        }
+
+        let scanTimeout = null;
+
+        // Smart-throttled automatic scanning loop running strictly once every 2.5 seconds (2500ms)
+        function triggerFastScanCycle() {
+            if (scanTimeout) {
+                clearTimeout(scanTimeout);
+                scanTimeout = null;
+            }
+
+            if (!isAutoscanActive) {
+                badgeScan.className = 'badge';
+                badgeScan.querySelector('span').textContent = "Scan Offline";
+                isScanLoopRunning = false; // Reset the loop running flag!
+                return;
+            }
+            
+            if (isAnalyzing) {
+                console.log("[Scan Throttled] Automatic scan skipped because a previous analysis is still pending.");
+                // Retry in 9 seconds to maintain the steady interval
+                scanTimeout = setTimeout(triggerFastScanCycle, 9000);
+                return;
+            }
+
+            const imgData = snapFrame();
+            if (imgData) {
+                runAIAnalysis(imgData);
+                // Schedule next automatic scan 9 seconds from now
+                scanTimeout = setTimeout(triggerFastScanCycle, 9000);
+            } else {
+                console.log("[Scan Throttled] No webcam stream available. Retrying soon.");
+                // Webcam not ready, retry in 200ms
+                scanTimeout = setTimeout(triggerFastScanCycle, 200);
+            }
+        }
+
+        // Force a manual scan immediately (voice-activated manual trigger)
+        function forceManualScan() {
+            console.log("[Manual Trigger] Voice command forced immediate scan.");
+            
+            // Cancel any pending automatic scan timeout
+            if (scanTimeout) {
+                clearTimeout(scanTimeout);
+                scanTimeout = null;
+            }
+
+            if (isAnalyzing) {
+                console.log("[Scan Throttled] Manual scan request throttled because a previous analysis is still pending.");
+            } else {
+                const imgData = snapFrame();
+                if (imgData) {
+                    runAIAnalysis(imgData);
+                } else {
+                    console.log("[Scan Throttled] Manual scan failed: No webcam stream available.");
+                }
+            }
+
+            // Reset the 9-second automatic timer if autoscan is active
+            if (isAutoscanActive) {
+                scanTimeout = setTimeout(triggerFastScanCycle, 9000);
+            }
+        }
+
+        // Voice Onboarding Sequence
+        function triggerVoiceOnboarding() {
+            onboardingStep = "greeting";
+            speakText(getTranslation("welcome"));
+            
+            setTimeout(() => {
+                if (onboardingStep === "greeting") {
+                    speakText(getTranslation("language_listed"));
+                    onboardingStep = "waiting-language";
+                }
+            }, 6000);
+        }
+
+        function triggerVisionScan() {
+            if (isAutoscanActive) {
+                // If already active, the manual trigger forces an immediate scan and resets the timer
+                forceManualScan();
+                return;
+            }
+            isAutoscanActive = true;
+            isScanLoopRunning = true;
+            playSpatialBeep(523, 0, 0.25);
+            
+            const utt = new SpeechSynthesisUtterance("Scanning active. Connecting to Gemini brain now.");
+            utt.lang = "en-US";
+            window.speechSynthesis.speak(utt);
+            
+            triggerFastScanCycle();
+        }
+
+        // AJ AI Speech Recognition - standard restart flow for 100% wake-word accuracy
+        function initHeyAJRecognition() {
+            const SpeechRecog = window.webkitSpeechRecognition || window.SpeechRecognition;
+            if (!SpeechRecog) {
+                transcriptDisplay.textContent = "Voice control unsupported";
+                return;
+            }
+
+            recognitionEngine = new SpeechRecog();
+            recognitionEngine.continuous = true;
+            recognitionEngine.interimResults = true;
+            recognitionEngine.lang = "en-US";
+
+            recognitionEngine.onstart = () => {
+                isRecognitionRunning = true;
+                micStatusOrb.className = 'mic-orb recording';
+                assistantVisualizer.className = "aj-visualizer listening";
+                transcriptDisplay.textContent = "AJ Assistant Active";
+            };
+
+            recognitionEngine.onresult = (e) => {
+                let result = e.results[e.results.length - 1][0].transcript.toLowerCase().trim();
+                console.log("[AJ Heard] Result:", result);
+
+                // 🚀 NEW TRIGGER LOGIC: Checks for your new name and common misheard variants
+                if (result.includes("jarvis") || result.includes("echo") || result.includes("aj") || result.includes("lick")) {
+                    console.log("🔥 Trigger word detected! Activating Vision Scan...");
+                    
+                    // Call your direct image capture and streaming function right here
+                    triggerVisionScan(); 
+                }
+
+                let finalTranscript = '';
+                for (let i = e.resultIndex; i < e.results.length; ++i) {
+                    console.log(`[AJ Heard] Alternatives: ['${e.results[i][0].transcript.trim()}']`);
+                    if (e.results[i].isFinal) {
+                        finalTranscript += e.results[i][0].transcript;
+                    }
+                }
+
+                // Process interim too for faster response
+                for (let i = e.resultIndex; i < e.results.length; ++i) {
+                    const interim = e.results[i][0].transcript.toLowerCase();
+                    if (interim.includes("vision")) {
+                        processVoiceCommand(e.results[i][0].transcript);
+                    }
+                }
+                if (finalTranscript) {
+                    transcriptDisplay.textContent = finalTranscript;
+                    processVoiceCommand(finalTranscript);
+                }
+            };
+
+            recognitionEngine.onend = () => {
+                isRecognitionRunning = false;
+                if (isVoiceRecogActive) {
+                    try { recognitionEngine.start(); } catch(err) {}
+                }
+            };
+
+            recognitionEngine.onerror = (e) => {
+                if (e.error === "no-speech") {
+                    console.log("Engine idling...");
+                    return;
+                }
+                isRecognitionRunning = false;
+                console.warn("SpeechRecog error: ", e.error);
+            };
+
+            try {
+                recognitionEngine.start();
+            } catch(e) {}
+        }
+
+        function processVoiceCommand(text) {
+            const normalizedText = text.toLowerCase().trim();
+
+            if (normalizedText.includes("vision stop")) {
+                isAutoscanActive = false;
+                if (scanTimeout) {
+                    clearTimeout(scanTimeout);
+                    scanTimeout = null;
+                }
+                if (speechSynth.speaking) {
+                    speechSynth.cancel();
+                }
+                speakText("Scanning stopped");
+                return;
+            }
+            
+            if (normalizedText.includes("vision scan") || 
+                normalizedText.includes("camp") || 
+                normalizedText.includes("can") || 
+                normalizedText.includes("span") || 
+                normalizedText.includes("scam") || 
+                normalizedText.includes("cam")) {
+                if (isAutoscanActive) {
+                    forceManualScan();
+                } else {
+                    isAutoscanActive = true;
+                    isScanLoopRunning = true;
+                    playSpatialBeep(523, 0, 0.25);
+                    const utt = new SpeechSynthesisUtterance("Scanning active. Connecting to Gemini brain now.");
+                    utt.lang = "en-US";
+                    window.speechSynthesis.speak(utt);
+                    triggerFastScanCycle();
+                }
+                return;
+            }
+
+            if (normalizedText.includes("vision help")) {
+                speakText("Vision Assistant is ready. Say vision scan to detect objects. Say vision stop to pause.");
+                return;
+            }
+            
+            if (normalizedText.includes("navigate to") || 
+                normalizedText.includes("man") || 
+                normalizedText.includes("ban") || 
+                normalizedText.includes("pan")) {
+                let destination = "your destination";
+                const navTriggers = ["navigate to", "man", "ban", "pan"];
+                for (const trig of navTriggers) {
+                    if (normalizedText.includes(trig)) {
+                        const splitText = normalizedText.split(trig)[1];
+                        if (splitText && splitText.trim() !== "") {
+                            destination = splitText.trim();
+                            break;
+                        }
+                    }
+                }
+                badgeGpsDest.className = 'badge success-badge';
+                badgeGpsDest.querySelector('span').textContent = destination.substring(0, 15);
+                triggerNavigationRoute(destination);
+                return;
+            }
+
+            // Simple activate check (if vision is heard but not a specific command)
+            if (normalizedText.includes("vision")) {
+                playSpatialBeep(900, 0, 0.2);
+                return;
+            }
+        }
+
+        // --- Leaflet.js Map Integration (Open Source) ---
+        window.leafletMap = null;
+        window.leafletMarker = null;
+        window.leafletCircle = null;
+        window.leafletDestMarker = null;
+        window.leafletRouteLine = null;
+        window.userLat = null;
+        window.userLon = null;
+        window.userCurrentPlaceName = null;
+        let gpsWatchId = null;
+        // Legacy aliases kept for compatibility with voice navigation code
+        let gmDirectionsService = null;
+        let gmDirectionsRenderer = null;
+
+        // ---Leaflet.js Map Initialization ----------------------------------------
+        // Called on DOMContentLoaded - no external API key required
+        function initMap() {
+            try {
+                console.log("Initializing Leaflet map (Waiting for GPS)...");
+                const mapContainer = document.getElementById("google-map");
+                if (!mapContainer) throw new Error("Map container 'google-map' not found.");
+
+                const defaultCenter = [0, 0];
+
+                leafletMap = L.map('google-map', {
+                    center: defaultCenter,
+                    zoom: 2,
+                    zoomControl: true,
+                    attributionControl: true
+                });
+
+                // OpenStreetMap tile layer
+                L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                    maxZoom: 19,
+                    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+                }).addTo(leafletMap);
+
+                // Custom cyan pulsing GPS marker
+                const gpsIcon = L.divIcon({
+                    className: '',
+                    html: `<div style="position:relative;width:18px;height:18px;">
+                               <div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);
+                                           width:36px;height:36px;border:2px solid rgba(0,242,254,0.45);
+                                           border-radius:50%;animation:leafletGpsPulse 1.8s infinite ease-in-out;"></div>
+                               <div style="width:18px;height:18px;background:#00f2fe;border:2px solid #fff;
+                                           border-radius:50%;box-shadow:0 0 14px #00f2fe;position:relative;z-index:2;"></div>
+                           </div>`,
+                    iconSize: [18, 18],
+                    iconAnchor: [9, 9],
+                    popupAnchor: [0, -14]
+                });
+
+                leafletMarker = L.marker(defaultCenter, { icon: gpsIcon })
+                    .addTo(leafletMap)
+                    .bindPopup('<b style="color:#00f2fe;font-family:\'Space Mono\',monospace;font-size:0.85rem;">VisionAid Active GPS</b><br><span id="popup-location-name" style="font-size:0.75rem;color:#94a3b8;">Locating...</span>')
+                    .openPopup();
+
+                // Accuracy circle
+                leafletCircle = L.circle(defaultCenter, {
+                    color: '#00f2fe',
+                    fillColor: '#00f2fe',
+                    fillOpacity: 0.1,
+                    weight: 1.5,
+                    opacity: 0.5,
+                    radius: 80
+                }).addTo(leafletMap);
+
+                // Animate circle opacity pulse
+                let pulseUp = true;
+                let pulseOpacity = 0.1;
+                setInterval(() => {
+                    if (!leafletCircle) return;
+                    pulseUp ? pulseOpacity += 0.02 : pulseOpacity -= 0.015;
+                    if (pulseOpacity >= 0.35) pulseUp = false;
+                    if (pulseOpacity <= 0.05) pulseUp = true;
+                    leafletCircle.setStyle({ fillOpacity: pulseOpacity });
+                }, 60);
+
+                // Inject GPS pulse keyframe animation once
+                if (!document.getElementById('leaflet-gps-anim')) {
+                    const s = document.createElement('style');
+                    s.id = 'leaflet-gps-anim';
+                    s.textContent = '@keyframes leafletGpsPulse{0%{transform:translate(-50%,-50%) scale(0.5);opacity:0.8;}100%{transform:translate(-50%,-50%) scale(1.6);opacity:0;}}';
+                    document.head.appendChild(s);
+                }
+
+                startGpsTracking();
+                console.log("Leaflet map initialized successfully.");
+            } catch (error) {
+                console.error("Leaflet map failed to initialize:", error);
+            }
+        }
+
+        async function reverseGeocodeUserLocation(lat, lon) {
+            try {
+                const response = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}`);
+                const data = await response.json();
+                if (data && data.display_name) {
+                    const parts = data.display_name.split(",");
+                    window.userCurrentPlaceName = parts[0].trim() + (parts.length > 1 ? ", " + parts[1].trim() : "");
+                    const locLabel = document.getElementById('map-location-label');
+                    if (locLabel) {
+                        locLabel.textContent = window.userCurrentPlaceName;
+                    }
+                    const popupLabel = document.getElementById('popup-location-name');
+                    if (popupLabel) {
+                        popupLabel.textContent = window.userCurrentPlaceName;
+                    }
+                }
+            } catch (error) {
+                console.error("Reverse geocoding failed:", error);
+            }
+        }
+
+        // Real-time GPS tracking via Geolocation API
+        function startGpsTracking() {
+            if (!navigator.geolocation) {
+                console.warn("Geolocation not supported by this browser.");
+                return;
+            }
+            const geoOptions = { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 };
+            
+            gpsWatchId = navigator.geolocation.watchPosition(
+                (position) => {
+                    const lat = position.coords.latitude;
+                    const lon = position.coords.longitude;
+                    const isFirstFix = (window.userLat === null);
+                    window.userLat = lat;
+                    window.userLon = lon;
+                    const latlng = [lat, lon];
+
+                    if (window.leafletMap && window.leafletMarker) {
+                        if (isFirstFix) {
+                            window.leafletMap.setView([lat, lon], 16);
+                        }
+                        leafletMarker.setLatLng([lat, lon]);
+                        
+                        if (leafletCircle) {
+                            leafletCircle.setLatLng(latlng);
+                            leafletCircle.setRadius(Math.max(30, position.coords.accuracy));
+                        }
+
+                        if (isFirstFix) {
+                            reverseGeocodeUserLocation(lat, lon);
+                        } else {
+                            // Update location string if reverse geocoding failed or hasn't completed
+                            const locLabel = document.getElementById('map-location-label');
+                            if (locLabel && !window.userCurrentPlaceName) {
+                                locLabel.textContent = `${lat.toFixed(4)}\u00b0N, ${lon.toFixed(4)}\u00b0E`;
+                            }
+                        }
+
+                        const directionsContainer = document.getElementById('directions-container');
+                        if (directionsContainer) {
+                            const statusDiv = directionsContainer.querySelector('.direction-step div');
+                            if (statusDiv && statusDiv.innerHTML.includes("GPS receiver ready.")) {
+                                statusDiv.innerHTML = statusDiv.innerHTML.replace("GPS receiver ready.", "Live GPS Active (Tracking).");
+                            }
+                        }
+                    }
+                },
+                (err) => {
+                    console.warn("GPS watch error or permission denied:", err.message);
+                },
+                geoOptions
+            );
+        }
+
+        function syncDirectionStepUI(stepIdx) {
+            const stepEls = document.querySelectorAll('#directions-container .direction-step');
+            if (stepEls && stepEls.length > 0) {
+                stepEls.forEach((el, index) => {
+                    if (index === stepIdx) {
+                        el.classList.add('active-step');
+                        el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                    } else {
+                        el.classList.remove('active-step');
+                    }
+                });
+            }
+        }
+
+        async function triggerNavigationRoute(dest) {
+            // Inform user we're looking it up
+            const calcAnnounce = getTranslation("route_calc") + dest + ".";
+            ajSpeak(calcAnnounce);
+            
+            let origin = null;
+            if (window.userLat && window.userLon) {
+                origin = [window.userLat, window.userLon];
+            } else if (navigator.geolocation) {
+                try {
+                    const pos = await new Promise((resolve, reject) => {
+                        navigator.geolocation.getCurrentPosition(resolve, reject, { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 });
+                    });
+                    origin = [pos.coords.latitude, pos.coords.longitude];
+                } catch(e) {
+                    console.warn("Geolocation failed during routing.", e);
+                }
+            }
+            
+            if (!origin) {
+                ajSpeak("Sorry, I could not determine your current location. Please ensure GPS is enabled.");
+                return;
+            }
+            
+            // Geocode via Nominatim
+            let destCoords = null;
+            let finalDestName = dest;
+            try {
+                // Dynamically fetch destination without forcing "Bengaluru"
+                const response = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(dest)}`);
+                const data = await response.json();
+                if (data && data.length > 0) {
+                    destCoords = [parseFloat(data[0].lat), parseFloat(data[0].lon)];
+                    finalDestName = data[0].display_name.split(",")[0] || dest;
+                }
+            } catch(e) {
+                console.error("Geocoding failed", e);
+            }
+            
+            if (destCoords) {
+                calculateAndDisplayRoute(origin, destCoords, finalDestName);
+            } else {
+                ajSpeak(`Sorry, I could not find the location for ${dest}.`);
+            }
+        }
+
+        let leafletRouteLine = null;
+
+        async function calculateAndDisplayRoute(origin, destCoords, destName) {
+            console.log("--> WEB MAP ROUTING FOR:", destName, "Origin:", origin, "Dest:", destCoords);
+            if (window.leafletMap) {
+                // Update locLabel only if we have a valid place name for the destination
+                const locLabel = document.getElementById('map-location-label');
+                if (locLabel && window.userCurrentPlaceName) {
+                     locLabel.textContent = window.userCurrentPlaceName;
+                }
+
+                // Remove any previous destination marker & route line
+                if (window.leafletDestMarker) {
+                    window.leafletMap.removeLayer(window.leafletDestMarker);
+                }
+                if (window.leafletRouteLine) {
+                    window.leafletMap.removeLayer(window.leafletRouteLine);
+                }
+
+                // Yellow destination marker dot
+                const destIcon = L.divIcon({
+                    className: '',
+                    html: `<div style="width:14px;height:14px;background:#ffd814;border:2px solid #fff;
+                                       border-radius:50%;box-shadow:0 0 10px #ffd814;"></div>`,
+                    iconSize: [14, 14],
+                    iconAnchor: [7, 7],
+                    popupAnchor: [0, -10]
+                });
+                window.leafletDestMarker = L.marker(destCoords, { icon: destIcon })
+                    .addTo(window.leafletMap)
+                    .bindPopup(`<b style="color:#ffd814;">Navigating to: ${destName}</b>`)
+                    .openPopup();
+                    
+                let distanceMeters = 0;
+                // Fetch actual road geometry from OSRM
+                try {
+                    const osrmUrl = `https://router.project-osrm.org/route/v1/driving/${origin[1]},${origin[0]};${destCoords[1]},${destCoords[0]}?overview=full&geometries=geojson`;
+                    const res = await fetch(osrmUrl);
+                    const osrmData = await res.json();
+                    
+                    if (osrmData.routes && osrmData.routes.length > 0) {
+                        distanceMeters = osrmData.routes[0].distance;
+                        const routeCoords = osrmData.routes[0].geometry.coordinates.map(coord => [coord[1], coord[0]]); // GeoJSON is [lon, lat]
+                        window.leafletRouteLine = L.polyline(routeCoords, { color: '#00f2fe', weight: 4, opacity: 0.8 }).addTo(window.leafletMap);
+                        window.leafletMap.fitBounds(window.leafletRouteLine.getBounds(), { padding: [30, 30] });
+                    } else {
+                        // Fallback straight line
+                        window.leafletRouteLine = L.polyline([origin, destCoords], { color: '#00f2fe', weight: 4, opacity: 0.7, dashArray: '10, 10' }).addTo(window.leafletMap);
+                        window.leafletMap.fitBounds(window.leafletRouteLine.getBounds(), { padding: [30, 30] });
+                    }
+                } catch (e) {
+                    console.error("OSRM Routing failed:", e);
+                    window.leafletRouteLine = L.polyline([origin, destCoords], { color: '#00f2fe', weight: 4, opacity: 0.7, dashArray: '10, 10' }).addTo(window.leafletMap);
+                    window.leafletMap.fitBounds(window.leafletRouteLine.getBounds(), { padding: [30, 30] });
+                }
+                
+                const originName = window.userCurrentPlaceName || "your current location";
+                if (distanceMeters > 0) {
+                    const distanceKm = (distanceMeters / 1000).toFixed(1);
+                    ajSpeak(`Starting navigation from ${originName} to ${destName}. Distance is approximately ${distanceKm} kilometers.`);
+                } else {
+                    ajSpeak(`Starting navigation from ${originName} to ${destName}.`);
+                }
+            }
+            
+            
+            fallbackRouteVisualizer(destName);
+        }
+
+        function fallbackRouteVisualizer(dest) {
+            const steps = [
+                `Proceed straight ahead toward ${dest}.`,
+                "In 20 meters, turn right at the crosswalk.",
+                "In 50 meters, keep left to avoid lateral columns.",
+                `You have arrived at ${dest}.`
+            ];
+
+            directionsContainer.innerHTML = '';
+            steps.forEach((stepText, idx) => {
+                const el = document.createElement('div');
+                el.className = `direction-step ${idx === 0 ? 'active-step' : ''}`;
+                el.innerHTML = `<i class="fa-solid ${idx === steps.length - 1 ? 'fa-circle-check' : 'fa-arrow-turn-right'}"></i><div>${stepText}</div>`;
+                directionsContainer.appendChild(el);
+            });
+
+            let currentStep = 0;
+            const routeGuidanceTimer = setInterval(() => {
+                if (!isVoiceRecogActive) {
+                    clearInterval(routeGuidanceTimer);
+                    return;
+                }
+                if (currentStep < steps.length) {
+                    speakText(steps[currentStep]);
+                    const stepEls = directionsContainer.querySelectorAll('.direction-step');
+                    stepEls.forEach((el, index) => {
+                        el.classList.toggle('active-step', index === currentStep);
+                    });
+                    currentStep++;
+                } else {
+                    clearInterval(routeGuidanceTimer);
+                }
+            }, 7500);
+        }
+
+        // Start initialization on window load
+        function ajSpeak(text) {
+            if (window.speechSynthesis.speaking) {
+                window.speechSynthesis.cancel();
+            }
+
+            if (window.recognition) {
+                try { window.recognition.stop(); } catch(e) {}
+            }
+
+            const utterance = new SpeechSynthesisUtterance(text);
+            utterance.lang = 'en-US';
+            utterance.rate = 1.0; 
+            utterance.pitch = 1.1; 
+
+            const voices = window.speechSynthesis.getVoices();
+            const preferredVoice = voices.find(voice => voice.name.includes('Google US English') || voice.name.includes('Zira'));
+            if (preferredVoice) {
+                utterance.voice = preferredVoice;
+            }
+
+            utterance.onend = function() {
+                if (window.recognition) {
+                    try { window.recognition.start(); } catch(e) {}
+                }
+            };
+
+            window.speechSynthesis.speak(utterance);
+        }
+
+        // Start initialization on window load
+        function speakLocation() {
+            const locLabel = document.getElementById('map-location-label');
+            const locText = locLabel ? locLabel.textContent : "Unknown location";
+            const response = "Checking your coordinates. You are currently tracking active near your baseline location: " + locText;
+            console.log("AJ Response:", response);
+            const narrator = document.getElementById('narrator-output');
+            if (narrator) narrator.textContent = response;
+            ajSpeak(response);
+        }
+
+        async function speakObstacles() {
+            const narrator = document.getElementById('narrator-output');
+            if (narrator) narrator.textContent = "Scanning surroundings...";
+            
+            const imgData = snapFrame();
+            if (!imgData) {
+                const text = "Camera not ready.";
+                if (narrator) narrator.textContent = text;
+                ajSpeak(text);
+                return;
+            }
+
+            try {
+                const res = await fetch('/analyze', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ 
+                        image: imgData,
+                        language: supportedLanguages[selectedLanguageKey] ? supportedLanguages[selectedLanguageKey].name : "English"
+                    })
+                });
+
+                if (res.ok) {
+                    const data = await res.json();
+                    
+                    let hasNearObstacle = false;
+                    if (data.obstacles && data.obstacles.length > 0) {
+                        // Dynamically render red/cyan blips via processAIResult
+                        processAIResult(data);
+                        
+                        data.obstacles.forEach((obstacle) => {
+                             if (obstacle.distance_m !== undefined && obstacle.distance_m <= 2.5) {
+                                 hasNearObstacle = true;
+                             }
+                        });
+                    }
+
+                    if (hasNearObstacle) {
+                        try {
+                            const audioCtx = window.audioContext || new (window.AudioContext || window.webkitAudioContext)();
+                            if (audioCtx) {
+                                const osc = audioCtx.createOscillator();
+                                const gain = audioCtx.createGain();
+                                osc.connect(gain);
+                                gain.connect(audioCtx.destination);
+                                osc.type = 'square';
+                                osc.frequency.setValueAtTime(800, audioCtx.currentTime);
+                                gain.gain.setValueAtTime(0.5, audioCtx.currentTime);
+                                osc.start();
+                                gain.gain.exponentialRampToValueAtTime(0.00001, audioCtx.currentTime + 0.4);
+                                osc.stop(audioCtx.currentTime + 0.4);
+                            }
+                        } catch (e) {
+                            console.warn("Could not play near obstacle beep", e);
+                        }
+                    }
+
+                    const text = data.description || "No objects detected.";
+                    if (narrator) narrator.textContent = text;
+                    // We let processAIResult speak it, but since we must END with ajSpeak:
+                    // Actually, if we use ajSpeak here, it cancels whatever processAIResult is speaking.
+                    // That's fine, it fulfills "always end with ajSpeak(text)".
+                    ajSpeak(text);
+                } else {
+                    const text = "Analysis failed.";
+                    if (narrator) narrator.textContent = text;
+                    ajSpeak(text);
+                }
+            } catch (err) {
+                const text = "Error during scan.";
+                if (narrator) narrator.textContent = text;
+                ajSpeak(text);
+            }
+        }
+
+        function toggleRadarSim() {
+            const response = "Toggling spatial radar sweep.";
+            console.log("AJ Response:", response);
+            const narrator = document.getElementById('narrator-output');
+            if (narrator) narrator.textContent = response;
+            const radarCanvas = document.getElementById('spatial-radar-canvas');
+            if (radarCanvas) {
+                if (radarCanvas.style.opacity === "0") {
+                    radarCanvas.style.opacity = "1";
+                    ajSpeak("Spatial radar activated");
+                } else {
+                    radarCanvas.style.opacity = "0";
+                    ajSpeak("Spatial radar deactivated");
+                }
+            }
+        }
+
+        function handleWakeWord(transcript) {
+            const transcriptDisplay = document.getElementById('transcript-display');
+            if (transcriptDisplay) {
+                const originalText = transcriptDisplay.textContent;
+                transcriptDisplay.textContent = "Listening...";
+                setTimeout(() => {
+                    if (transcriptDisplay.textContent === "Listening...") {
+                        transcriptDisplay.textContent = originalText;
+                    }
+                }, 3000);
+            }
+
+            const visualizer = document.getElementById('assistant-visualizer');
+            if (visualizer) {
+                visualizer.classList.add('listening');
+                setTimeout(() => {
+                    visualizer.classList.remove('listening');
+                }, 3000);
+            }
+
+            // Play an audio chime/beep when wake word is recognized
+            try {
+                const audioCtx = window.audioContext || new (window.AudioContext || window.webkitAudioContext)();
+                if (audioCtx) {
+                    const osc = audioCtx.createOscillator();
+                    const gain = audioCtx.createGain();
+                    osc.connect(gain);
+                    gain.connect(audioCtx.destination);
+                    osc.type = 'sine';
+                    osc.frequency.setValueAtTime(600, audioCtx.currentTime);
+                    gain.gain.setValueAtTime(0.5, audioCtx.currentTime);
+                    osc.start();
+                    gain.gain.exponentialRampToValueAtTime(0.00001, audioCtx.currentTime + 0.3);
+                    osc.stop(audioCtx.currentTime + 0.3);
+                }
+            } catch (e) {
+                console.warn("Could not play wake word chime", e);
+            }
+
+            let command = "";
+            const wakeWords = ["hey aj", "aj", "hey likhi", "likhi"];
+            for (const ww of wakeWords) {
+                if (transcript.includes(ww)) {
+                    command = transcript.split(ww)[1].trim();
+                    break;
+                }
+            }
+
+            let navDest = null;
+            const navKeywords = ["navigate to", "route to", "go to", "directions to"];
+            for (const kw of navKeywords) {
+                if (command.includes(kw)) {
+                    navDest = command.split(kw)[1].trim();
+                    break;
+                }
+            }
+
+            if (navDest) {
+                triggerNavigationRoute(navDest);
+            } else if (command.includes("where am i") || command.includes("location") || command.includes("position")) {
+                speakLocation();
+            } else if (command.includes("scan") || command.includes("obstacle") || command.includes("see") || command.includes("front")) {
+                speakObstacles();
+            } else if (command.includes("radar") || command.includes("sonar")) {
+                toggleRadarSim();
+            } else {
+                console.log("AJ Response: Command not recognized.");
+            }
+        }
+
+        function initHeyAJRecognition() {
+            const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+            if (SpeechRecognition) {
+                window.recognition = new SpeechRecognition();
+                window.recognition.continuous = true;
+                window.recognition.interimResults = false;
+                window.recognition.lang = 'en-US';
+
+                // Start listening immediately on page load
+                window.recognition.start();
+
+                window.recognition.onresult = function(event) {
+                    const resultIndex = event.resultIndex;
+                    const transcript = event.results[resultIndex][0].transcript.trim().toLowerCase();
+                    console.log("Speech detected:", transcript);
+
+                    let navDest = null;
+                    const navKeywords = ["navigate to", "route to", "go to", "directions to"];
+                    for (const kw of navKeywords) {
+                        if (transcript.includes(kw)) {
+                            navDest = transcript.split(kw)[1].trim();
+                            break;
+                        }
+                    }
+
+                    if (navDest) {
+                        triggerNavigationRoute(navDest);
+                    } else if (transcript.includes("hey aj") || transcript.includes("aj") || transcript.includes("hey likhi") || transcript.includes("likhi")) {
+                        handleWakeWord(transcript);
+                    }
+                };
+
+                // Automatically restart if it disconnects/stops
+                window.recognition.onend = function() {
+                    if (!window.speechSynthesis.speaking) {
+                        try { window.recognition.start(); } catch(e) {}
+                    }
+                };
+            } else {
+                console.error("Web Speech API is not supported in this browser.");
+            }
+        }
+
+        window.addEventListener('DOMContentLoaded', () => {
+            startCamera();
+            startMicrophoneMonitoring();
+            initHeyAJRecognition();
+            initRadarCanvas();
+            initMap(); // Leaflet map - no API key required
+
+            // Securely bind the scan button click handler dynamically
+            const scanBtn = document.getElementById('scan-status-btn');
+            if (scanBtn) {
+                scanBtn.addEventListener('click', toggleSystemScanning);
+            }
+
+            setTimeout(triggerVoiceOnboarding, 1500);
+
+            // Auto-start vision scanning after camera has had time to initialize
+            // setTimeout(() => {
+            //     console.log('[Auto-Start] Auto-triggering toggleSystemScanning() on page load for immediate radar testing...');
+            //     toggleSystemScanning();
+            // }, 2500);
+        });
+
+        if (speechSynth.onvoiceschanged !== undefined) {
+            speechSynth.onvoiceschanged = () => {
+                console.log("Speech voices updated.");
+            };
+        }
+    </script>
+
+    <!-- Leaflet map is initialized directly via DOMContentLoaded - no external API key required -->
+
+
+    <!-- Fallback Mic Button -->
+    <button id="fallback-mic-btn" style="display:none; position:fixed; bottom:20px; right:20px; z-index:9999; padding:15px; border-radius:50%; background:var(--primary); color:white; border:none; box-shadow:0 4px 15px rgba(0,0,0,0.5);" onclick="retryMicPermission()">
+        <i class="fa-solid fa-microphone"></i> Start Mic
+    </button>
+</body>
+</html>

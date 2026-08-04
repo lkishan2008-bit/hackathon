@@ -2161,21 +2161,51 @@
         }
 
         function detectScriptLanguage(text) {
-            if (!text) return null;
-            // Kannada script
-            if (/[\u0C80-\u0CFF]/.test(text)) return 'kn-IN';
-            // Hindi / Devanagari script
-            if (/[\u0900-\u097F]/.test(text)) return 'hi-IN';
-            // Tamil script
-            if (/[\u0B80-\u0BFF]/.test(text)) return 'ta-IN';
-            // Telugu script
-            if (/[\u0C00-\u0C7F]/.test(text)) return 'te-IN';
-            // Malayalam script
-            if (/[\u0D00-\u0D7F]/.test(text)) return 'ml-IN';
-            // Spanish
-            if (/[ñáéíóú¿¡]/i.test(text)) return 'es-ES';
-            // French
-            if (/[éèêëàâùûç]/i.test(text)) return 'fr-FR';
+            if (!text || typeof text !== 'string') return null;
+
+            // 1. Indic & South Asian Scripts
+            if (/[\u0C80-\u0CFF]/.test(text)) return 'kn-IN'; // Kannada
+            if (/[\u0900-\u097F]/.test(text)) return 'hi-IN'; // Devanagari (Hindi/Marathi/Nepali/Sanskrit)
+            if (/[\u0B80-\u0BFF]/.test(text)) return 'ta-IN'; // Tamil
+            if (/[\u0C00-\u0C7F]/.test(text)) return 'te-IN'; // Telugu
+            if (/[\u0D00-\u0D7F]/.test(text)) return 'ml-IN'; // Malayalam
+            if (/[\u0980-\u09FF]/.test(text)) return 'bn-IN'; // Bengali / Assamese
+            if (/[\u0A80-\u0AFF]/.test(text)) return 'gu-IN'; // Gujarati
+            if (/[\u0A00-\u0A7F]/.test(text)) return 'pa-IN'; // Gurmukhi (Punjabi)
+            if (/[\u0B00-\u0B7F]/.test(text)) return 'or-IN'; // Odia
+            if (/[\u0D80-\u0DFF]/.test(text)) return 'si-LK'; // Sinhala
+
+            // 2. East Asian Scripts
+            if (/[\u3040-\u309F\u30A0-\u30FF\u31F0-\u31FF]/.test(text)) return 'ja-JP'; // Japanese (Hiragana / Katakana)
+            if (/[\uAC00-\uD7AF\u1100-\u11FF\u3130-\u318F]/.test(text)) return 'ko-KR'; // Korean (Hangul)
+            if (/[\u4E00-\u9FFF\u3400-\u4DBF]/.test(text)) return 'zh-CN'; // Chinese (Han)
+
+            // 3. Middle Eastern & African Scripts
+            if (/[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF]/.test(text)) return 'ar-SA'; // Arabic / Persian / Urdu
+            if (/[\u0590-\u05FF]/.test(text)) return 'he-IL'; // Hebrew
+            if (/[\u1200-\u137F]/.test(text)) return 'am-ET'; // Ethiopic (Amharic)
+
+            // 4. Southeast Asian Scripts
+            if (/[\u0E00-\u0E7F]/.test(text)) return 'th-TH'; // Thai
+            if (/[\u0E80-\u0EFF]/.test(text)) return 'lo-LA'; // Lao
+            if (/[\u1780-\u17FF]/.test(text)) return 'km-KH'; // Khmer
+            if (/[\u1000-\u109F]/.test(text)) return 'my-MM'; // Myanmar (Burmese)
+            if (/[\u1EA0-\u1EF9]/.test(text)) return 'vi-VN'; // Vietnamese
+
+            // 5. European & Eurasian Scripts
+            if (/[\u0400-\u04FF]/.test(text)) return 'ru-RU'; // Cyrillic (Russian/Ukrainian/Bulgarian/Serbian)
+            if (/[\u0370-\u03FF]/.test(text)) return 'el-GR'; // Greek
+            if (/[\u10A0-\u10FF]/.test(text)) return 'ka-GE'; // Georgian
+
+            // 6. Latin Diacritic / Character Specific Languages
+            if (/[ğüşıöçĞÜŞİÖÇ]/.test(text)) return 'tr-TR'; // Turkish
+            if (/[ąćęłńóśźżĄĆĘŁŃÓŚŹŻ]/.test(text)) return 'pl-PL'; // Polish
+            if (/[ãõâêôçáéíóú]/i.test(text)) return 'pt-PT'; // Portuguese
+            if (/[äöüß]/i.test(text)) return 'de-DE'; // German
+            if (/[ñáéíóú¿¡]/i.test(text)) return 'es-ES'; // Spanish
+            if (/[éèêëàâùûç]/i.test(text)) return 'fr-FR'; // French
+            if (/[àèéìíîòóùú]/i.test(text)) return 'it-IT'; // Italian
+
             return null;
         }
 
@@ -2222,22 +2252,26 @@
             
             utterance.lang = targetLang;
 
-            let chosenVoice = null;
-            const langPrefix = targetLang.substring(0, 2).toLowerCase();
+            // Extract 2-letter ISO prefix (e.g. 'fr', 'es', 'de', 'ja', 'ar', 'kn', 'hi', 'zh', etc.)
+            const isoPrefix = targetLang.substring(0, 2).toLowerCase();
 
+            let chosenVoice = null;
+            // 1st Pass: Preferred neural/google/natural/female voice matching target locale or ISO prefix
             for (let i = 0; i < voices.length; i++) {
                 const vLang = voices[i].lang.toLowerCase().replace('_', '-');
-                if (vLang.startsWith(targetLang.toLowerCase()) || vLang.startsWith(langPrefix)) {
-                    if (voices[i].name.toLowerCase().includes('google') || voices[i].name.toLowerCase().includes('natural') || voices[i].name.toLowerCase().includes('female')) {
+                if (vLang.startsWith(targetLang.toLowerCase()) || vLang.startsWith(isoPrefix)) {
+                    const vName = voices[i].name.toLowerCase();
+                    if (vName.includes('google') || vName.includes('natural') || vName.includes('female') || vName.includes('neural') || vName.includes('premium')) {
                         chosenVoice = voices[i];
                         break;
                     }
                 }
             }
+            // 2nd Pass: Fallback to any voice matching ISO prefix
             if (!chosenVoice) {
                 for (let i = 0; i < voices.length; i++) {
                     const vLang = voices[i].lang.toLowerCase().replace('_', '-');
-                    if (vLang.startsWith(targetLang.toLowerCase()) || vLang.startsWith(langPrefix)) {
+                    if (vLang.startsWith(targetLang.toLowerCase()) || vLang.startsWith(isoPrefix)) {
                         chosenVoice = voices[i];
                         break;
                     }

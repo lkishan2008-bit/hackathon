@@ -3359,8 +3359,12 @@
                 console.warn("Geolocation not supported by this browser.");
                 return;
             }
-            // Options tuned for desktop & mobile reliability without timeout exceptions
-            const geoOptions = { enableHighAccuracy: false, maximumAge: 10000, timeout: 15000 };
+            // High-accuracy options: continuous fresh fixes, no caching, 10s timeout
+            const geoOptions = {
+                enableHighAccuracy: true,
+                timeout: 10000,
+                maximumAge: 0
+            };
 
             gpsWatchId = navigator.geolocation.watchPosition(
                 (position) => {
@@ -3373,11 +3377,13 @@
                     const latlng = [lat, lon];
 
                     if (window.leafletMap && window.leafletMarker) {
+                        // Always re-center the map as coordinates improve with each fix
+                        window.leafletMap.setView(latlng, 16);
+                        window.leafletMarker.setLatLng(latlng);
+
                         if (isFirstFix) {
-                            window.leafletMap.setView(latlng, 16);
                             reverseGeocodeUserLocation(lat, lon);
                         }
-                        window.leafletMarker.setLatLng(latlng);
 
                         if (window.leafletAccuracyCircle) {
                             window.leafletAccuracyCircle.setLatLng(latlng);

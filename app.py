@@ -184,8 +184,8 @@ STRICT RULES FOR YOUR OUTPUT:
             "Content-Type": "application/json"
         }
         
-        # Try primary model (Gemini 3.5 Flash) and fall back to Gemini 2.5 Flash if unavailable
-        models_to_try = ["gemini-3.5-flash", "gemini-2.5-flash"]
+        # Try primary models and fall back if unavailable
+        models_to_try = ["gemini-3.5-flash", "gemini-2.5-flash", "gemini-1.5-flash", "gemini-1.5-pro"]
         response = None
         last_error = None
         
@@ -299,7 +299,7 @@ STRICT RULES FOR YOUR RESPONSE:
         }
 
         headers = {"Content-Type": "application/json"}
-        models_to_try = ["gemini-3.5-flash", "gemini-2.5-flash"]
+        models_to_try = ["gemini-3.5-flash", "gemini-2.5-flash", "gemini-1.5-flash", "gemini-1.5-pro"]
         reply_text = None
 
         for model_name in models_to_try:
@@ -311,7 +311,7 @@ STRICT RULES FOR YOUR RESPONSE:
                     reply_text = g_data['candidates'][0]['content']['parts'][0]['text']
                     break
                 else:
-                    print(f"Chat API error {res.status_code}: {res.text}")
+                    print(f"Gemini API Error (status {res.status_code}): {res.text}")
             except Exception as err:
                 print(f"[Chat] Model {model_name} failed: {err}")
 
@@ -322,7 +322,7 @@ STRICT RULES FOR YOUR RESPONSE:
         cleaned_reply = re.sub(r'[*#_`]+', '', reply_text).strip()
         return jsonify({"response": cleaned_reply})
     except Exception as e:
-        print(f"[Chat Endpoint Exception]: {e}")
+        print(f"Gemini API Error: {e}")
         return jsonify({"response": "Sorry, an unexpected error occurred."}), 500
 
 if __name__ == '__main__':

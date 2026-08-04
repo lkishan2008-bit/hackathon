@@ -1977,20 +1977,8 @@
             }
 
             // ---Step 4: Draw target dots ON TOP of sweep ---------------------------------
-            // Use the persistent activeRadarTargets - not cleared per-frame.
-            // radarHazards is kept as a legacy alias pointing to activeRadarTargets.
             const now = Date.now();
-
-            let targetsToDraw = activeRadarTargets;
-            // Always ensure the radar display remains actively populated with targets
-            if (!targetsToDraw || targetsToDraw.length === 0) {
-                const sim1 = getRadarCoords('center', (now % 30000 / 30000) * 50, width, height); // moving dot
-                const sim2 = getRadarCoords('aside_right', 20, width, height); // static dot
-                targetsToDraw = [
-                    { x: sim1.x, y: sim1.y, type: 'info', size: 'normal' },
-                    { x: sim2.x, y: sim2.y, type: 'info', size: 'tiny' }
-                ];
-            }
+            let targetsToDraw = activeRadarTargets || [];
 
             targetsToDraw.forEach(h => {
                 const isDanger = (h.size === 'macro' || h.type === 'danger');
@@ -2853,28 +2841,40 @@
                         if (remainingMeters <= 15) {
                             // Only trigger arrival when within 15 meters
                             route.hasArrived = true;
-                            route.currentStepIdx = 3; // Arrival step
-                            syncDirectionStepUI(3);
-                            ajSpeak(`You have arrived at ${route.destName}. Navigation complete.`);
+                            route.currentStepIdx = route.steps.length - 1; // Arrival step
+                            syncDirectionStepUI(route.currentStepIdx);
+                            speakText(`You have arrived at ${route.destName}. Navigation complete.`, 1);
                         } else {
                             // Highlight step card corresponding to user's real GPS progress
-                            const totalD = Math.max(route.totalDistanceMeters, 1);
-                            const progress = Math.max(0, Math.min(0.95, 1 - (remainingMeters / totalD)));
+                            let newStepIdx = route.currentStepIdx;
+                            const totalSteps = route.steps.length - 1;
 
-                            let newStepIdx = 0;
-                            if (progress >= 0.66) {
-                                newStepIdx = 2;
-                            } else if (progress >= 0.33) {
-                                newStepIdx = 1;
+                            if (route.osrmNodes && route.osrmNodes.length > 1) {
+                                // Real OSRM node progression
+                                for (let i = route.currentStepIdx; i < route.osrmNodes.length - 1; i++) {
+                                    const nodePt = route.osrmNodes[i].coords;
+                                    if (nodePt) {
+                                        const distToNode = calculateDistanceMeters(lat, lon, nodePt[0], nodePt[1]);
+                                        // Advance if within 20 meters of the maneuver node
+                                        if (distToNode <= 20) {
+                                            newStepIdx = Math.min(i + 1, totalSteps - 1);
+                                        }
+                                    }
+                                }
                             } else {
-                                newStepIdx = 0;
+                                // Fallback progress calculation
+                                const totalD = Math.max(route.totalDistanceMeters, 1);
+                                const progress = Math.max(0, Math.min(0.95, 1 - (remainingMeters / totalD)));
+                                if (progress >= 0.66) newStepIdx = 2;
+                                else if (progress >= 0.33) newStepIdx = 1;
+                                else newStepIdx = 0;
                             }
 
-                            if (newStepIdx !== route.currentStepIdx) {
+                            if (newStepIdx > route.currentStepIdx && newStepIdx < route.steps.length - 1) {
                                 route.currentStepIdx = newStepIdx;
                                 syncDirectionStepUI(newStepIdx);
                                 if (route.steps && route.steps[newStepIdx]) {
-                                    ajSpeak(route.steps[newStepIdx]);
+                                    speakText(route.steps[newStepIdx], 1);
                                 }
                             }
                         }
@@ -2984,16 +2984,36 @@
                 .openPopup();
 
             let distanceMeters = 0;
+            let osrmStepManeuvers = null;
+
             try {
-                // OSRM walking route
-                const osrmUrl = `https://router.project-osrm.org/route/v1/walking/${origin[1]},${origin[0]};${destCoords[1]},${destCoords[0]}?overview=full&geometries=geojson`;
+                // Fetch OSRM walking route with turn-by-turn steps
+                const osrmUrl = `https://router.project-osrm.org/route/v1/walking/${origin[1]},${origin[0]};${destCoords[1]},${destCoords[0]}?steps=true&overview=full&geometries=geojson`;
                 const res = await fetch(osrmUrl);
                 const osrmData = await res.json();
 
                 if (osrmData.routes && osrmData.routes.length > 0) {
-                    distanceMeters = osrmData.routes[0].distance;
-                    const routeCoords = osrmData.routes[0].geometry.coordinates.map(c => [c[1], c[0]]);
+                    const primaryRoute = osrmData.routes[0];
+                    distanceMeters = primaryRoute.distance;
+                    const routeCoords = primaryRoute.geometry.coordinates.map(c => [c[1], c[0]]);
                     window.leafletRouteLine = L.polyline(routeCoords, { color: '#00f2fe', weight: 4, opacity: 0.85 }).addTo(window.leafletMap);
+
+                    if (primaryRoute.legs && primaryRoute.legs[0] && primaryRoute.legs[0].steps) {
+                        osrmStepManeuvers = primaryRoute.legs[0].steps.map((s, idx) => {
+                            let text = s.name ? `Turn onto ${s.name}` : `Proceed along segment ${idx + 1}`;
+                            if (s.maneuver) {
+                                const type = s.maneuver.type;
+                                const mod = s.maneuver.modifier;
+                                if (type === 'arrive') text = `You have arrived at ${destName}.`;
+                                else if (type === 'depart') text = `Proceed straight ahead toward ${destName}.`;
+                                else if (mod) text = `Turn ${mod} ${s.name ? 'onto ' + s.name : 'ahead'}.`;
+                            }
+                            return {
+                                text: text,
+                                coords: [s.maneuver.location[1], s.maneuver.location[0]]
+                            };
+                        });
+                    }
                 } else {
                     window.leafletRouteLine = L.polyline([origin, destCoords], { color: '#00f2fe', weight: 4, opacity: 0.7, dashArray: '10,10' }).addTo(window.leafletMap);
                 }
@@ -3007,24 +3027,29 @@
             const originName = window.userCurrentPlaceName || 'your current location';
             if (distanceMeters > 0) {
                 const km = (distanceMeters / 1000).toFixed(1);
-                ajSpeak(`Starting navigation from ${originName} to ${destName}. Distance is approximately ${km} kilometres.`);
+                speakText(`Starting navigation from ${originName} to ${destName}. Distance is approximately ${km} kilometres.`, 1);
             } else {
-                ajSpeak(`Starting navigation from ${originName} to ${destName}.`);
+                speakText(`Starting navigation from ${originName} to ${destName}.`, 1);
             }
-            fallbackRouteVisualizer(destName, origin, destCoords, distanceMeters);
+            fallbackRouteVisualizer(destName, origin, destCoords, distanceMeters, osrmStepManeuvers);
         }
 
-        function fallbackRouteVisualizer(dest, origin, destCoords, routeDistanceMeters) {
+        function fallbackRouteVisualizer(dest, origin, destCoords, routeDistanceMeters, osrmStepManeuvers = null) {
             const originPt = origin || (window.userLat && window.userLon ? [window.userLat, window.userLon] : [0, 0]);
             const targetPt = destCoords || [0, 0];
             const totalDist = routeDistanceMeters || calculateDistanceMeters(originPt[0], originPt[1], targetPt[0], targetPt[1]);
 
-            const steps = [
-                `Proceed straight ahead toward ${dest}.`,
-                "In 20 meters, turn right at the crosswalk.",
-                "In 50 meters, keep left to avoid lateral columns.",
-                `You have arrived at ${dest}.`
-            ];
+            let steps = [];
+            if (osrmStepManeuvers && osrmStepManeuvers.length > 0) {
+                steps = osrmStepManeuvers.map(s => s.text);
+            } else {
+                steps = [
+                    `Proceed straight ahead toward ${dest}.`,
+                    "In 20 meters, turn right at the crosswalk.",
+                    "In 50 meters, keep left to avoid lateral columns.",
+                    `You have arrived at ${dest}.`
+                ];
+            }
 
             window.activeNavigationRoute = {
                 destName: dest,
@@ -3032,6 +3057,7 @@
                 originCoords: originPt,
                 totalDistanceMeters: totalDist,
                 steps: steps,
+                osrmNodes: osrmStepManeuvers,
                 currentStepIdx: 0,
                 hasArrived: false
             };
@@ -3040,9 +3066,10 @@
             if (directionsContainer) {
                 directionsContainer.innerHTML = '';
                 steps.forEach((stepText, idx) => {
+                    const isLast = (idx === steps.length - 1);
                     const el = document.createElement('div');
                     el.className = `direction-step ${idx === 0 ? 'active-step' : ''}`;
-                    el.innerHTML = `<i class="fa-solid ${idx === steps.length - 1 ? 'fa-circle-check' : (idx === 1 ? 'fa-arrow-turn-right' : (idx === 2 ? 'fa-arrow-turn-left' : 'fa-arrow-up'))}"></i><div>${stepText}</div>`;
+                    el.innerHTML = `<i class="fa-solid ${isLast ? 'fa-circle-check' : (idx === 1 ? 'fa-arrow-turn-right' : 'fa-arrow-up')}"></i><div>${stepText}</div>`;
                     directionsContainer.appendChild(el);
                 });
             }

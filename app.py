@@ -220,20 +220,7 @@ STRICT RULES FOR YOUR OUTPUT:
         if not isinstance(parsed_json, dict):
             parsed_json = {}
         if 'obstacles' not in parsed_json or not parsed_json['obstacles']:
-            parsed_json['obstacles'] = [
-                {
-                    "label": "Simulated Activity (Front)",
-                    "position": "center",
-                    "size": "normal",
-                    "distance_m": 8
-                },
-                {
-                    "label": "Simulated Activity (Side)",
-                    "position": "left",
-                    "size": "tiny",
-                    "distance_m": 15
-                }
-            ]
+            parsed_json['obstacles'] = []
 
         if 'smart_danger' not in parsed_json:
             parsed_json['smart_danger'] = {
@@ -253,18 +240,10 @@ STRICT RULES FOR YOUR OUTPUT:
         print(f"Details: {e}")
         traceback.print_exc()
         print("====================================================")
-        # Intercept exception — return clean fallback with mock simulation obstacle
-        # so the radar canvas always has active tracking coordinates to render.
+        # Return clean response without fake/simulated obstacles when offline or error
         return jsonify({
-            "description": "Offline safety mode active. Simulation tracking enabled.",
-            "obstacles": [
-                {
-                    "label": "User Checked",
-                    "position": "center",
-                    "size": "normal",
-                    "distance_m": 5
-                }
-            ],
+            "description": "Offline safety mode active.",
+            "obstacles": [],
             "smart_danger": {
                 "detected": False,
                 "type": None,

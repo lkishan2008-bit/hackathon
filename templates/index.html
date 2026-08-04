@@ -1070,8 +1070,8 @@
                 </span>
             </div>
 
-            <div class="radar-container" aria-hidden="true" style="margin-top: 1rem; width: 130px; height: 130px; position: relative;">
-                <canvas id="spatial-radar-canvas" width="130" height="130" style="position: absolute; top:0; left:0; width:100%; height:100%; border-radius: 50%;"></canvas>
+            <div class="radar-container" aria-hidden="true" style="margin-top: 1rem; width: 130px; height: 130px; position: relative; contain: strict; will-change: transform;">
+                <canvas id="spatial-radar-canvas" width="130" height="130" style="position: absolute; top:0; left:0; width:100%; height:100%; border-radius: 50%; will-change: transform;"></canvas>
                 <div class="radar-label">Spatial Radar</div>
             </div>
         </section>
@@ -1129,7 +1129,7 @@
             </h2>
 
             <!-- Google Maps Viewport -->
-            <div class="map-viewport" id="map-canvas" style="position: relative;">
+            <div class="map-viewport" id="map-canvas" style="position: relative; contain: strict; will-change: transform;">
                 <!-- Real Google Maps Container -->
                 <div id="google-map" style="width:100%; height:100%; border-radius:12px;"></div>
 
@@ -3151,6 +3151,29 @@
             const normalizedText = cleanText.toLowerCase().trim();
             console.log("[Voice Command Processing]: Raw:", text, "-> Cleaned:", cleanText);
 
+            // 0a. Voice Navigation: Open Map
+            if (normalizedText.includes('open the map') || normalizedText.includes('show map') ||
+                normalizedText.includes('open map') || normalizedText.includes('show the map')) {
+                voiceNavigateTo('map');
+                return;
+            }
+
+            // 0b. Voice Navigation: Open Scanner / Camera
+            if (normalizedText.includes('start scanning') || normalizedText.includes('open scanner') ||
+                normalizedText.includes('open camera') || normalizedText.includes('show camera') ||
+                normalizedText.includes('start camera') || normalizedText.includes('open the scanner')) {
+                voiceNavigateTo('scanner');
+                return;
+            }
+
+            // 0c. Voice Navigation: Go Home / Dashboard
+            if (normalizedText === 'go back' || normalizedText.includes('open home') ||
+                normalizedText.includes('go home') || normalizedText.includes('show dashboard') ||
+                normalizedText.includes('back to home')) {
+                voiceNavigateTo('home');
+                return;
+            }
+
             // 1. System Control: Stop scanning
             if (normalizedText.includes("vision stop") || normalizedText === "stop") {
                 isAutoscanActive = false;
@@ -4049,6 +4072,62 @@
             ensureAudioContext();
             if (window.speechSynthesis && window.speechSynthesis.paused) {
                 try { window.speechSynthesis.resume(); } catch(e) {}
+            }
+        }
+
+        /* ── Voice-Activated View Navigation ──────────────────────────────── */
+        /**
+         * Smoothly navigates to a named view and provides audio confirmation.
+         * @param {'map'|'scanner'|'home'} view
+         */
+        function voiceNavigateTo(view) {
+            ensureAudioContext();
+            if (window.speechSynthesis && window.speechSynthesis.paused) {
+                try { window.speechSynthesis.resume(); } catch(e) {}
+            }
+
+            if (view === 'map') {
+                // Scroll map into view
+                const mapEl = document.getElementById('map-canvas') || document.getElementById('google-map');
+                if (mapEl) mapEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                // Invalidate Leaflet size after scroll animation completes
+                setTimeout(() => {
+                    if (window.leafletMap) {
+                        try { window.leafletMap.invalidateSize(); } catch(e) {}
+                    }
+                }, 450);
+                speakText('Opening map navigation.');
+                screenReaderAnnounce('Map view opened.');
+
+            } else if (view === 'scanner') {
+                // Scroll camera/radar view into view
+                const viewportEl = document.getElementById('viewport-container') || document.getElementById('main-content');
+                if (viewportEl) viewportEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                // Re-start camera if not already streaming
+                if (!videoStream || !videoStream.active) {
+                    getUserMediaWithFallback().then(stream => {
+                        videoStream = stream;
+                        const webcam = document.getElementById('webcam');
+                        if (webcam) {
+                            webcam.srcObject = stream;
+                            webcam.play().catch(e => console.warn('[voiceNav camera play]', e));
+                        }
+                    }).catch(e => console.warn('[voiceNav camera]', e));
+                }
+                if (!isAutoscanActive) toggleSystemScanning();
+                speakText('Starting spatial camera scanner.');
+                screenReaderAnnounce('Scanner view opened.');
+
+            } else if (view === 'home') {
+                // Scroll back to landing hero / top of page
+                const heroEl = document.getElementById('hero-section') || document.querySelector('.landing-hero-section');
+                if (heroEl) {
+                    heroEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                } else {
+                    window.scrollTo({ top: 0, behavior: 'smooth' });
+                }
+                speakText('Returning to home dashboard.');
+                screenReaderAnnounce('Home dashboard view opened.');
             }
         }
 

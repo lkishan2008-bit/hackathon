@@ -2203,12 +2203,38 @@
 
         // Send base64 image data to Flask backend `/analyze` API
         let isAnalyzing = false;
+        let geminiBrainClearupTimer = null;
+
+        function setConnectingToGeminiStatus() {
+            if (narratorOutput) {
+                narratorOutput.textContent = "Connecting to Gemini brain...";
+            }
+            if (geminiBrainClearupTimer) {
+                clearTimeout(geminiBrainClearupTimer);
+            }
+            // Clear-up timer fallback: removes 'connecting to Gemini brain' status UI if network stalls
+            geminiBrainClearupTimer = setTimeout(() => {
+                removeConnectingToGeminiStatus();
+            }, 8000);
+        }
+
+        function removeConnectingToGeminiStatus() {
+            if (geminiBrainClearupTimer) {
+                clearTimeout(geminiBrainClearupTimer);
+                geminiBrainClearupTimer = null;
+            }
+            if (narratorOutput && narratorOutput.textContent && narratorOutput.textContent.toLowerCase().includes("connecting to gemini")) {
+                narratorOutput.textContent = "";
+            }
+        }
+
         async function runAIAnalysis(dataUrl) {
             if (isAnalyzing) {
                 console.log("[Scan Throttled] Analysis already in progress. Skipping frame dispatch.");
                 return;
             }
             isAnalyzing = true;
+            setConnectingToGeminiStatus();
 
             scanner.style.display = 'block';
             badgeScan.className = 'badge active';
@@ -2241,10 +2267,12 @@
                     processAIResult({ status: 'error', obstacles: [], detected_objects: [] });
                 }
             } catch (e) {
+                removeConnectingToGeminiStatus();
                 console.error("AI Analysis error:", e);
                 // Clear radar on network failure so stale blips don't persist
                 processAIResult({ status: 'error', obstacles: [], detected_objects: [] });
             } finally {
+                removeConnectingToGeminiStatus();
                 scanner.style.display = 'none';
                 isAnalyzing = false;
             }
@@ -2260,6 +2288,7 @@
                 badgeScan.querySelector('span').textContent = "Scan Active";
                 
                 playSpatialBeep(523, 0, 0.25);
+                setConnectingToGeminiStatus();
                 const utt = new SpeechSynthesisUtterance("Scanning active. Connecting to Gemini brain now.");
                 utt.lang = "en-US";
                 window.speechSynthesis.speak(utt);
@@ -2441,6 +2470,8 @@
 
         // Process Gemini API Result & Trigger Spatial Sounds
         function processAIResult(payload) {
+            // Remove 'connecting to Gemini brain' status UI immediately once API response payload is returned
+            removeConnectingToGeminiStatus();
             try {
                 // Guard: treat missing/null payload as an empty-frame result
                 if (!payload || typeof payload !== 'object') {
@@ -2952,6 +2983,7 @@
             isScanLoopRunning = true;
             playSpatialBeep(523, 0, 0.25);
             
+            setConnectingToGeminiStatus();
             const utt = new SpeechSynthesisUtterance("Scanning active. Connecting to Gemini brain now.");
             utt.lang = "en-US";
             window.speechSynthesis.speak(utt);
@@ -3068,7 +3100,7 @@
         async function sendChatQuery(queryText) {
             if (!queryText || !queryText.trim()) return;
             console.log("[AJ Chat Query]:", queryText);
-            if (narratorOutput) narratorOutput.textContent = "Thinking...";
+            setConnectingToGeminiStatus();
 
             try {
                 // Detect the script of the query to let Gemini know the input language.
@@ -3089,6 +3121,7 @@
                     body: JSON.stringify(payload)
                 });
                 const data = await response.json();
+                removeConnectingToGeminiStatus();
                 if (data && data.response) {
                     const respText = data.response;
                     if (narratorOutput) narratorOutput.textContent = respText;
@@ -3103,6 +3136,7 @@
                     speakText(fallback, 1);
                 }
             } catch (err) {
+                removeConnectingToGeminiStatus();
                 console.error("[AJ Chat Error]:", err);
                 const errSpeech = "Sorry, I am having trouble connecting to my chat service.";
                 if (narratorOutput) narratorOutput.textContent = errSpeech;
@@ -3210,6 +3244,7 @@
                     isAutoscanActive = true;
                     isScanLoopRunning = true;
                     playSpatialBeep(523, 0, 0.25);
+                    setConnectingToGeminiStatus();
                     const utt = new SpeechSynthesisUtterance("Scanning active. Connecting to Gemini brain now.");
                     utt.lang = "en-US";
                     window.speechSynthesis.speak(utt);

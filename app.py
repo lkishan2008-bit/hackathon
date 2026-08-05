@@ -180,7 +180,9 @@ STRICT RULES FOR YOUR OUTPUT:
                 }
             ],
             "generationConfig": {
-                "responseMimeType": "application/json"
+                "responseMimeType": "application/json",
+                "temperature": 0.4,
+                "maxOutputTokens": 150
             },
             "safetySettings": [
                 {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"},
@@ -194,8 +196,8 @@ STRICT RULES FOR YOUR OUTPUT:
             "Content-Type": "application/json"
         }
         
-        # Model priority list: start with stable 1.5-flash, then pro, then try 2.x/3.x if available
-        models_to_try = ["gemini-1.5-flash", "gemini-1.5-pro", "gemini-2.5-flash", "gemini-2.0-flash"]
+        # Explicitly target lightweight, high-speed gemini-1.5-flash model
+        models_to_try = ["gemini-1.5-flash"]
         response = None
         last_error = None
         
@@ -323,14 +325,14 @@ STRICT RULES FOR YOUR RESPONSE:
                 }
             ],
             "generationConfig": {
-                "temperature": 0.7,
-                "maxOutputTokens": 300
+                "temperature": 0.4,
+                "maxOutputTokens": 150
             }
         }
 
         headers = {"Content-Type": "application/json"}
-        # Primary: gemini-1.5-flash (fast & reliable), fallback chain to pro and newer variants
-        models_to_try = ["gemini-1.5-flash", "gemini-1.5-pro", "gemini-2.5-flash", "gemini-2.0-flash"]
+        # Explicitly target lightweight, high-speed gemini-1.5-flash model
+        models_to_try = ["gemini-1.5-flash"]
         reply_text = None
 
         for model_name in models_to_try:

@@ -1,5 +1,13 @@
 {
   "version": 2,
+  "functions": {
+    "app.py": {
+      "maxDuration": 60
+    },
+    "api/*.py": {
+      "maxDuration": 60
+    }
+  },
   "builds": [
     {
       "src": "app.py",
